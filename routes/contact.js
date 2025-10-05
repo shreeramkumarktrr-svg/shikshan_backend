@@ -1,6 +1,8 @@
 const express = require('express');
 const nodemailer = require('nodemailer');
 const Joi = require('joi');
+const { Inquiry } = require('../models');
+const { authenticate, authorize } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -38,6 +40,17 @@ router.post('/send', async (req, res) => {
     }
 
     const { name, email, phone, schoolName, designation, description } = value;
+
+    // Save inquiry to database
+    const inquiry = await Inquiry.create({
+      name,
+      email,
+      phone,
+      schoolName,
+      designation: designation || null,
+      description: description || null,
+      status: 'Pending'
+    });
 
     // Create transporter
     const transporter = createTransporter();
@@ -241,12 +254,14 @@ Reach out to them within 24 hours for the best response rate!
       to: 'shreeramkumar.ktr@gmail.com',
       from: email,
       school: schoolName,
+      inquiryId: inquiry.id,
       timestamp: new Date().toISOString()
     });
 
     res.json({
       success: true,
-      message: 'Your message has been sent successfully!'
+      message: 'Your message has been sent successfully!',
+      inquiryId: inquiry.id
     });
 
   } catch (error) {
@@ -283,6 +298,206 @@ router.get('/test', async (req, res) => {
       success: false,
       error: 'Email configuration test failed',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Get all inquiries (Super Admin only)
+router.get('/inquiries', authenticate, authorize('super_admin'), async (req, res) => {
+  try {
+    const { page = 1, limit = 10, status, search } = req.query;
+    const offset = (page - 1) * limit;
+
+    const whereClause = {};
+    
+    if (status && status !== 'all') {
+      whereClause.status = status;
+    }
+
+    if (search) {
+      const { Op } = require('sequelize');
+      whereClause[Op.or] = [
+        { name: { [Op.iLike]: `%${search}%` } },
+        { email: { [Op.iLike]: `%${search}%` } },
+        { schoolName: { [Op.iLike]: `%${search}%` } },
+        { phone: { [Op.iLike]: `%${search}%` } }
+      ];
+    }
+
+    const { count, rows: inquiries } = await Inquiry.findAndCountAll({
+      where: whereClause,
+      order: [['createdAt', 'DESC']],
+      limit: parseInt(limit),
+      offset: parseInt(offset)
+    });
+
+    res.json({
+      success: true,
+      data: {
+        inquiries,
+        pagination: {
+          total: count,
+          page: parseInt(page),
+          limit: parseInt(limit),
+          totalPages: Math.ceil(count / limit)
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Get inquiries error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch inquiries'
+    });
+  }
+});
+
+// Get inquiry statistics (Super Admin only)
+router.get('/inquiries/stats', authenticate, authorize('super_admin'), async (req, res) => {
+  try {
+    const { Op } = require('sequelize');
+    
+    const stats = await Inquiry.findAll({
+      attributes: [
+        'status',
+        [require('sequelize').fn('COUNT', '*'), 'count']
+      ],
+      group: ['status'],
+      raw: true
+    });
+
+    // Get recent inquiries (last 30 days)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const recentCount = await Inquiry.count({
+      where: {
+        createdAt: {
+          [Op.gte]: thirtyDaysAgo
+        }
+      }
+    });
+
+    const statusCounts = {
+      'Pending': 0,
+      'Demo Planned': 0,
+      'Demo Done': 0,
+      'Denied': 0,
+      'Onboarded': 0
+    };
+
+    stats.forEach(stat => {
+      statusCounts[stat.status] = parseInt(stat.count);
+    });
+
+    res.json({
+      success: true,
+      data: {
+        statusCounts,
+        recentCount,
+        totalInquiries: Object.values(statusCounts).reduce((a, b) => a + b, 0)
+      }
+    });
+  } catch (error) {
+    console.error('Get inquiry stats error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch inquiry statistics'
+    });
+  }
+});
+
+// Update inquiry status (Super Admin only)
+router.put('/inquiries/:id/status', authenticate, authorize('super_admin'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, notes } = req.body;
+
+    const validStatuses = ['Pending', 'Demo Planned', 'Demo Done', 'Denied', 'Onboarded'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid status value'
+      });
+    }
+
+    const inquiry = await Inquiry.findByPk(id);
+    if (!inquiry) {
+      return res.status(404).json({
+        success: false,
+        error: 'Inquiry not found'
+      });
+    }
+
+    await inquiry.update({
+      status,
+      notes: notes || inquiry.notes
+    });
+
+    res.json({
+      success: true,
+      message: 'Inquiry status updated successfully',
+      data: inquiry
+    });
+  } catch (error) {
+    console.error('Update inquiry status error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update inquiry status'
+    });
+  }
+});
+
+// Get single inquiry details (Super Admin only)
+router.get('/inquiries/:id', authenticate, authorize('super_admin'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const inquiry = await Inquiry.findByPk(id);
+    if (!inquiry) {
+      return res.status(404).json({
+        success: false,
+        error: 'Inquiry not found'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: inquiry
+    });
+  } catch (error) {
+    console.error('Get inquiry error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch inquiry details'
+    });
+  }
+});
+
+// Delete inquiry (Super Admin only)
+router.delete('/inquiries/:id', authenticate, authorize('super_admin'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    
+    const inquiry = await Inquiry.findByPk(id);
+    if (!inquiry) {
+      return res.status(404).json({
+        success: false,
+        error: 'Inquiry not found'
+      });
+    }
+
+    await inquiry.destroy();
+
+    res.json({
+      success: true,
+      message: 'Inquiry deleted successfully'
+    });
+  } catch (error) {
+    console.error('Delete inquiry error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete inquiry'
     });
   }
 });

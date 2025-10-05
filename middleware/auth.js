@@ -79,7 +79,7 @@ const authorize = (...roles) => {
 
 // School context middleware - ensure user belongs to the school
 const schoolContext = (req, res, next) => {
-  const schoolId = req.params.schoolId || req.body.schoolId || req.query.schoolId;
+  const schoolId = req.params.schoolId || req.params.id || req.body.schoolId || req.query.schoolId;
   
   // Super admin can access any school
   if (req.user.role === 'super_admin') {

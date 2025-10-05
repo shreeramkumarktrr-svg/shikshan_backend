@@ -169,10 +169,18 @@ router.post('/login', async (req, res) => {
         email: user.email,
         phone: user.phone,
         role: user.role,
+        address: user.address,
+        dateOfBirth: user.dateOfBirth,
+        gender: user.gender,
+        profilePic: user.profilePic,
         schoolId: user.schoolId,
-        school: user.school
+        school: user.school,
+        permissions: user.permissions,
+        isActive: user.isActive,
+        createdAt: user.createdAt
       },
-      token
+      token,
+      success: true
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -272,16 +280,123 @@ router.get('/me', authenticate, async (req, res) => {
         email: user.email,
         phone: user.phone,
         role: user.role,
+        address: user.address,
+        dateOfBirth: user.dateOfBirth,
+        gender: user.gender,
         profilePic: user.profilePic,
         schoolId: user.schoolId,
         school: user.school,
         permissions: user.permissions,
-        lastLoginAt: user.lastLoginAt
+        lastLoginAt: user.lastLoginAt,
+        isActive: user.isActive,
+        createdAt: user.createdAt
       }
     });
   } catch (error) {
     console.error('Get profile error:', error);
     res.status(500).json({ error: 'Failed to get user profile' });
+  }
+});
+
+// Update current user profile
+router.put('/me', authenticate, async (req, res) => {
+  try {
+    const { firstName, lastName, phone, address, dateOfBirth, gender } = req.body;
+    
+    // Validation
+    const updateSchema = Joi.object({
+      firstName: Joi.string().min(2).max(50).optional(),
+      lastName: Joi.string().min(2).max(50).optional(),
+      phone: Joi.string().min(10).max(15).optional(),
+      address: Joi.string().max(500).optional().allow(''),
+      dateOfBirth: Joi.date().optional().allow(null),
+      gender: Joi.string().valid('male', 'female', 'other').optional().allow('')
+    });
+
+    const { error, value } = updateSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ 
+        error: 'Validation failed', 
+        details: error.details.map(d => d.message) 
+      });
+    }
+
+    const user = await User.findByPk(req.user.id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Update user profile
+    await user.update(value);
+
+    // Return updated user data
+    const updatedUser = await User.findByPk(req.user.id, {
+      attributes: { exclude: ['passwordHash'] },
+      include: [
+        {
+          model: School,
+          as: 'school',
+          attributes: ['id', 'name']
+        }
+      ]
+    });
+
+    res.json({
+      message: 'Profile updated successfully',
+      user: {
+        id: updatedUser.id,
+        firstName: updatedUser.firstName,
+        lastName: updatedUser.lastName,
+        email: updatedUser.email,
+        phone: updatedUser.phone,
+        role: updatedUser.role,
+        address: updatedUser.address,
+        dateOfBirth: updatedUser.dateOfBirth,
+        gender: updatedUser.gender,
+        profilePic: updatedUser.profilePic,
+        schoolId: updatedUser.schoolId,
+        school: updatedUser.school,
+        isActive: updatedUser.isActive,
+        createdAt: updatedUser.createdAt
+      }
+    });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({ error: 'Failed to update profile' });
+  }
+});
+
+// Change current user password
+router.put('/change-password', authenticate, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({ error: 'Current password and new password are required' });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({ error: 'New password must be at least 6 characters' });
+    }
+
+    const user = await User.findByPk(req.user.id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Verify current password
+    const isValidPassword = await user.validatePassword(currentPassword);
+    if (!isValidPassword) {
+      return res.status(400).json({ error: 'Current password is incorrect' });
+    }
+
+    // Update password
+    await user.update({ passwordHash: newPassword }); // Will be hashed by the model hook
+
+    res.json({ message: 'Password changed successfully' });
+  } catch (error) {
+    console.error('Change password error:', error);
+    res.status(500).json({ error: 'Failed to change password' });
   }
 });
 

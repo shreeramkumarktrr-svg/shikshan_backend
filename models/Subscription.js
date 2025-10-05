@@ -75,10 +75,18 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.JSONB,
       allowNull: false,
       defaultValue: {
+        // Core School Management Features (matching sidebar navigation)
+        dashboard: true,
+        teachers: true,
+        students: true,
+        classes: true,
         attendance: true,
         homework: true,
         events: true,
+        complaints: true,
+        fees: true,
         reports: true,
+        // Additional Premium Features
         smsNotifications: false,
         emailNotifications: true,
         mobileApp: false,
@@ -86,11 +94,7 @@ module.exports = (sequelize, DataTypes) => {
         apiAccess: false,
         advancedReports: false,
         bulkImport: false,
-        parentPortal: true,
-        onlineExams: false,
-        feeManagement: false,
-        libraryManagement: false,
-        transportManagement: false
+        parentPortal: true
       }
     },
     isActive: {

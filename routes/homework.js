@@ -3,6 +3,7 @@ const Joi = require('joi');
 const { Op } = require('sequelize');
 const { Homework, HomeworkSubmission, User, Class, Student, School } = require('../models');
 const { authenticate, authorize, schoolContext } = require('../middleware/auth');
+const { checkFeatureAccess } = require('../middleware/featureAccess');
 
 const router = express.Router();
 
@@ -65,7 +66,7 @@ const gradeHomeworkSchema = Joi.object({
 });
 
 // Get all homework for a school/class
-router.get('/', authenticate, schoolContext, async (req, res) => {
+router.get('/', authenticate, schoolContext, checkFeatureAccess('homework'), async (req, res) => {
   try {
     const { page = 1, limit = 10, classId, subject, type, priority, status, studentId } = req.query;
     const offset = (page - 1) * limit;
@@ -193,7 +194,7 @@ router.get('/', authenticate, schoolContext, async (req, res) => {
 });
 
 // Get homework statistics
-router.get('/stats/overview', authenticate, schoolContext, async (req, res) => {
+router.get('/stats/overview', authenticate, schoolContext, checkFeatureAccess('homework'), async (req, res) => {
   try {
     const { classId } = req.query;
     
@@ -254,7 +255,7 @@ router.get('/stats/overview', authenticate, schoolContext, async (req, res) => {
 });
 
 // Get homework by ID
-router.get('/:id', authenticate, schoolContext, async (req, res) => {
+router.get('/:id', authenticate, schoolContext, checkFeatureAccess('homework'), async (req, res) => {
   try {
     const homework = await Homework.findByPk(req.params.id, {
       include: [
@@ -327,7 +328,7 @@ router.get('/:id', authenticate, schoolContext, async (req, res) => {
 });
 
 // Create new homework
-router.post('/', authenticate, authorize('super_admin', 'school_admin', 'principal', 'teacher'), async (req, res) => {
+router.post('/', authenticate, authorize('super_admin', 'school_admin', 'principal', 'teacher'), checkFeatureAccess('homework'), async (req, res) => {
   try {
     const { error, value } = createHomeworkSchema.validate(req.body);
     if (error) {
@@ -387,7 +388,7 @@ router.post('/', authenticate, authorize('super_admin', 'school_admin', 'princip
 });
 
 // Update homework
-router.put('/:id', authenticate, authorize('super_admin', 'school_admin', 'principal', 'teacher'), async (req, res) => {
+router.put('/:id', authenticate, authorize('super_admin', 'school_admin', 'principal', 'teacher'), checkFeatureAccess('homework'), async (req, res) => {
   try {
     const { error, value } = updateHomeworkSchema.validate(req.body);
     if (error) {
@@ -446,7 +447,7 @@ router.put('/:id', authenticate, authorize('super_admin', 'school_admin', 'princ
 });
 
 // Delete homework
-router.delete('/:id', authenticate, authorize('super_admin', 'school_admin', 'principal', 'teacher'), async (req, res) => {
+router.delete('/:id', authenticate, authorize('super_admin', 'school_admin', 'principal', 'teacher'), checkFeatureAccess('homework'), async (req, res) => {
   try {
     const homework = await Homework.findByPk(req.params.id);
     if (!homework) {
@@ -473,7 +474,7 @@ router.delete('/:id', authenticate, authorize('super_admin', 'school_admin', 'pr
 });
 
 // Submit homework (students only)
-router.post('/:id/submit', authenticate, authorize('student'), async (req, res) => {
+router.post('/:id/submit', authenticate, authorize('student'), checkFeatureAccess('homework'), async (req, res) => {
   try {
     const { error, value } = submitHomeworkSchema.validate(req.body);
     if (error) {
@@ -568,7 +569,7 @@ router.post('/:id/submit', authenticate, authorize('student'), async (req, res) 
 });
 
 // Grade homework submission
-router.put('/:id/submissions/:submissionId/grade', authenticate, authorize('super_admin', 'school_admin', 'principal', 'teacher'), async (req, res) => {
+router.put('/:id/submissions/:submissionId/grade', authenticate, authorize('super_admin', 'school_admin', 'principal', 'teacher'), checkFeatureAccess('homework'), async (req, res) => {
   try {
     const { error, value } = gradeHomeworkSchema.validate(req.body);
     if (error) {

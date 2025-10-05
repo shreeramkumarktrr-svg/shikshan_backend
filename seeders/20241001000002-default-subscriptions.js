@@ -26,10 +26,18 @@ module.exports = {
         maxTeachers: 10,
         maxClasses: 20,
         features: JSON.stringify({
+          // Core School Management Features (matching sidebar navigation)
+          dashboard: true,
+          teachers: true,
+          students: true,
+          classes: true,
           attendance: true,
           homework: true,
           events: true,
+          complaints: true,
+          fees: false,
           reports: true,
+          // Additional Premium Features
           smsNotifications: false,
           emailNotifications: true,
           mobileApp: false,
@@ -37,11 +45,7 @@ module.exports = {
           apiAccess: false,
           advancedReports: false,
           bulkImport: false,
-          parentPortal: true,
-          onlineExams: false,
-          feeManagement: false,
-          libraryManagement: false,
-          transportManagement: false
+          parentPortal: true
         }),
         isActive: true,
         isPopular: false,
@@ -62,10 +66,18 @@ module.exports = {
         maxTeachers: 50,
         maxClasses: 100,
         features: JSON.stringify({
+          // Core School Management Features (matching sidebar navigation)
+          dashboard: true,
+          teachers: true,
+          students: true,
+          classes: true,
           attendance: true,
           homework: true,
           events: true,
+          complaints: true,
+          fees: true,
           reports: true,
+          // Additional Premium Features
           smsNotifications: true,
           emailNotifications: true,
           mobileApp: true,
@@ -73,11 +85,7 @@ module.exports = {
           apiAccess: false,
           advancedReports: true,
           bulkImport: true,
-          parentPortal: true,
-          onlineExams: true,
-          feeManagement: true,
-          libraryManagement: false,
-          transportManagement: false
+          parentPortal: true
         }),
         isActive: true,
         isPopular: true,
@@ -98,10 +106,18 @@ module.exports = {
         maxTeachers: 200,
         maxClasses: 500,
         features: JSON.stringify({
+          // Core School Management Features (matching sidebar navigation)
+          dashboard: true,
+          teachers: true,
+          students: true,
+          classes: true,
           attendance: true,
           homework: true,
           events: true,
+          complaints: true,
+          fees: true,
           reports: true,
+          // Additional Premium Features
           smsNotifications: true,
           emailNotifications: true,
           mobileApp: true,
@@ -109,11 +125,7 @@ module.exports = {
           apiAccess: true,
           advancedReports: true,
           bulkImport: true,
-          parentPortal: true,
-          onlineExams: true,
-          feeManagement: true,
-          libraryManagement: true,
-          transportManagement: true
+          parentPortal: true
         }),
         isActive: true,
         isPopular: false,
