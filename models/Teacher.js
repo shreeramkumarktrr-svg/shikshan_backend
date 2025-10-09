@@ -8,10 +8,13 @@ module.exports = (sequelize, DataTypes) => {
     userId: {
       type: DataTypes.UUID,
       allowNull: false,
+      unique: true,
       references: {
         model: 'users',
         key: 'id'
-      }
+      },
+      onDelete: 'CASCADE',
+      onUpdate: 'CASCADE'
     },
     qualification: {
       type: DataTypes.STRING,
@@ -42,30 +45,65 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: false
+    },
+    joiningDate: {
+      type: DataTypes.DATE,
+      allowNull: true,
+      defaultValue: DataTypes.NOW
+    },
+    isActive: {
+      type: DataTypes.BOOLEAN,
+      allowNull: false,
+      defaultValue: true
     }
   }, {
     tableName: 'teachers',
     timestamps: true,
     indexes: [
       {
-        fields: ['userId']
+        fields: ['userId'],
+        unique: true
+      },
+      {
+        fields: ['isActive']
+      },
+      {
+        fields: ['isClassTeacher']
       }
     ]
   });
 
   Teacher.associate = (models) => {
+    // One-to-one with User
     Teacher.belongsTo(models.User, {
       foreignKey: 'userId',
-      as: 'user'
+      as: 'user',
+      onDelete: 'CASCADE'
     });
     
-    // Many-to-many with Classes through ClassTeachers
+    // Many-to-many with Classes through ClassTeachers junction table
     if (models.Class) {
       Teacher.belongsToMany(models.Class, {
         through: 'ClassTeachers',
         foreignKey: 'teacherId',
         otherKey: 'classId',
         as: 'classes'
+      });
+    }
+
+    // One-to-many with Homework (if teacher creates homework)
+    if (models.Homework) {
+      Teacher.hasMany(models.Homework, {
+        foreignKey: 'teacherId',
+        as: 'homework'
+      });
+    }
+
+    // One-to-many with Attendance (if teacher takes attendance)
+    if (models.Attendance) {
+      Teacher.hasMany(models.Attendance, {
+        foreignKey: 'teacherId',
+        as: 'attendanceRecords'
       });
     }
   };

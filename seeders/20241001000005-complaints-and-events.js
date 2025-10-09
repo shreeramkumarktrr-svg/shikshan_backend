@@ -29,8 +29,6 @@ module.exports = {
        WHERE u."schoolId" IN ('${schools.map(s => s.id).join("', '")}')`
     );
 
-    console.log('Creating complaints and events...');
-
     // 9. Create complaints
     const complaintTypes = ['academic', 'behavioral', 'facility', 'transport', 'fee', 'other'];
     const complaintTitles = [
@@ -193,23 +191,17 @@ module.exports = {
       }
     }
 
-    console.log('Complaints and events created successfully!');
-    console.log('\n=== COMPREHENSIVE TEST DATA SEEDING COMPLETED ===');
-    console.log('\nCreated:');
+    
     console.log('✓ 3 Subscription Plans (Starter, Super, Advanced)');
     console.log('✓ 3 Schools with respective subscription plans');
     console.log('✓ 1 School admin per school (3 total)');
     console.log('✓ 3 Teachers per school (9 total)');
     console.log('✓ 10 Students per school with parents (30 students, 30 parents)');
-    console.log('✓ Past 10 days attendance records for all students');
-    console.log('✓ 5 Homework assignments per class with submissions');
+    
     console.log('✓ 3-5 Complaints per school with updates');
     console.log('✓ 5 Events per school (15 total)');
-    console.log('\nLogin Credentials:');
-    console.log('Super Admin: admin@shikshan.com / admin123');
-    console.log('School Admins: principal1@sunrise.edu, principal2@excellence.edu, principal3@future.edu / admin123');
-    console.log('Teachers: [firstname].[lastname]@[school-domain] / teacher123');
-    console.log('Students: [firstname].[lastname]@student.[school-domain] / student123');
+    
+    
     console.log('Parents: parent.[firstname].[lastname]@gmail.com / parent123');
   },
 

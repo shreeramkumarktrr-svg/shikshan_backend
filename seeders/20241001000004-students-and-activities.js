@@ -28,8 +28,6 @@ module.exports = {
       `SELECT * FROM users WHERE role = 'teacher' AND "schoolId" IN ('${schools.map(s => s.id).join("', '")}')`
     );
 
-    console.log('Creating students and activities...');
-
     // 6. Create 10 students per school with parents
     const students = [];
     const parents = [];
@@ -146,7 +144,6 @@ module.exports = {
     }
 
     // 7. Create attendance records for past 10 days
-    console.log('Creating attendance records...');
     for (let dayOffset = 10; dayOffset >= 1; dayOffset--) {
       const attendanceDate = new Date();
       attendanceDate.setDate(attendanceDate.getDate() - dayOffset);
@@ -189,7 +186,6 @@ module.exports = {
     console.log('Attendance records created for past 10 days');
 
     // 8. Create homework assignments
-    console.log('Creating homework assignments...');
     const homeworkSubjects = ['Mathematics', 'Science', 'English', 'Hindi', 'Social Studies'];
     
     for (const schoolClass of classes) {

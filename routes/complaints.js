@@ -193,10 +193,6 @@ router.get('/:id', auth, async (req, res) => {
 // Create new complaint
 router.post('/', auth, async (req, res) => {
   try {
-    console.log('🔄 Received complaint creation request');
-    console.log('Request body:', req.body);
-    console.log('User:', req.user);
-    
     const {
       title,
       description,
@@ -204,8 +200,6 @@ router.post('/', auth, async (req, res) => {
       priority = 'medium',
       studentId
     } = req.body;
-
-
 
     // Validate required fields
     if (!title || !description) {
@@ -276,7 +270,6 @@ router.post('/', auth, async (req, res) => {
       message: 'Complaint created successfully'
     });
   } catch (error) {
-    console.error('❌ Create complaint error:', error);
     console.error('Error stack:', error.stack);
     console.error('Error details:', {
       message: error.message,
@@ -289,6 +282,92 @@ router.post('/', auth, async (req, res) => {
       success: false,
       error: 'Failed to create complaint',
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+// Update complaint
+router.put('/:id', auth, async (req, res) => {
+  try {
+    const { status, adminResponse, resolution, isInternal = false } = req.body;
+
+    // Check if user can update
+    if (!['teacher', 'principal', 'school_admin', 'super_admin'].includes(req.user.role)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied'
+      });
+    }
+
+    const complaint = await Complaint.findByPk(req.params.id);
+    if (!complaint) {
+      return res.status(404).json({
+        success: false,
+        error: 'Complaint not found'
+      });
+    }
+
+    // Check school access
+    if (req.user.role !== 'super_admin' && complaint.schoolId !== req.user.schoolId) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied'
+      });
+    }
+
+    const previousStatus = complaint.status;
+    const updateData = {};
+
+    if (status) updateData.status = status;
+    if (adminResponse) updateData.adminResponse = adminResponse;
+
+    // Set resolution details if resolving
+    if (status === 'resolved' && resolution) {
+      updateData.resolution = resolution;
+      updateData.resolvedAt = new Date();
+    }
+
+    await complaint.update(updateData);
+
+    // Create update record
+    let message = adminResponse || `Status changed from ${previousStatus} to ${status}`;
+    if (resolution) message = resolution;
+
+    await ComplaintUpdate.create({
+      complaintId: complaint.id,
+      updatedBy: req.user.id,
+      updateType: status ? 'status_change' : 'comment',
+      message,
+      previousValue: previousStatus,
+      newValue: status,
+      isInternal
+    });
+
+    const updatedComplaint = await Complaint.findByPk(complaint.id, {
+      include: [
+        {
+          model: User,
+          as: 'complainant',
+          attributes: ['id', 'firstName', 'lastName', 'role']
+        },
+        {
+          model: User,
+          as: 'assignee',
+          attributes: ['id', 'firstName', 'lastName', 'role']
+        }
+      ]
+    });
+
+    res.json({
+      success: true,
+      data: { complaint: updatedComplaint },
+      message: 'Complaint updated successfully'
+    });
+  } catch (error) {
+    console.error('Update complaint error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update complaint'
     });
   }
 });
@@ -508,8 +587,105 @@ router.put('/:id/assign', auth, async (req, res) => {
   }
 });
 
+// Get my complaints (user's own complaints)
+router.get('/my', auth, async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      status,
+      category,
+      priority,
+      sortBy = 'createdAt',
+      sortOrder = 'DESC'
+    } = req.query;
+
+    const offset = (page - 1) * limit;
+    const where = {};
+
+    // Apply school filter
+    if (req.user.role !== 'super_admin') {
+      where.schoolId = req.user.schoolId;
+    }
+
+    // Filter by user's complaints based on role
+    if (req.user.role === 'student') {
+      where.raisedBy = req.user.id;
+    } else if (req.user.role === 'parent') {
+      // Parents can see complaints raised by them or their children
+      const children = await User.findAll({
+        where: { parentId: req.user.id, role: 'student' },
+        attributes: ['id']
+      });
+      const childIds = children.map(child => child.id);
+      where[Op.or] = [
+        { raisedBy: req.user.id },
+        { raisedBy: { [Op.in]: childIds } },
+        { studentId: { [Op.in]: childIds } }
+      ];
+    } else if (req.user.role === 'teacher') {
+      // Teachers see complaints assigned to them or raised by them
+      where[Op.or] = [
+        { raisedBy: req.user.id },
+        { assignedTo: req.user.id }
+      ];
+    } else {
+      // For principals and admins, show complaints they raised
+      where.raisedBy = req.user.id;
+    }
+
+    // Apply additional filters
+    if (status) where.status = status;
+    if (category) where.category = category;
+    if (priority) where.priority = priority;
+
+    const { count, rows: complaints } = await Complaint.findAndCountAll({
+      where,
+      include: [
+        {
+          model: User,
+          as: 'complainant',
+          attributes: ['id', 'firstName', 'lastName', 'role']
+        },
+        {
+          model: User,
+          as: 'assignee',
+          attributes: ['id', 'firstName', 'lastName', 'role']
+        },
+        {
+          model: User,
+          as: 'student',
+          attributes: ['id', 'firstName', 'lastName']
+        }
+      ],
+      order: [[sortBy, sortOrder]],
+      limit: parseInt(limit),
+      offset: parseInt(offset)
+    });
+
+    res.json({
+      success: true,
+      data: {
+        complaints,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(count / limit),
+          totalItems: count,
+          itemsPerPage: parseInt(limit)
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Get my complaints error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch complaints'
+    });
+  }
+});
+
 // Get complaint statistics
-router.get('/stats/summary', auth, async (req, res) => {
+router.get('/stats', auth, async (req, res) => {
   try {
     const where = {};
 
@@ -551,23 +727,68 @@ router.get('/stats/summary', auth, async (req, res) => {
 
     res.json({
       success: true,
-      data: {
-        totalComplaints,
-        openComplaints,
-        inProgressComplaints,
-        resolvedComplaints,
-        urgentComplaints,
-        categoryStats: categoryStats.map(stat => ({
-          category: stat.category,
-          count: parseInt(stat.dataValues.count)
-        }))
-      }
+      totalComplaints,
+      pendingComplaints: openComplaints + inProgressComplaints,
+      resolvedComplaints,
+      openComplaints,
+      inProgressComplaints,
+      urgentComplaints,
+      categoryStats: categoryStats.map(stat => ({
+        category: stat.category,
+        count: parseInt(stat.dataValues.count)
+      }))
     });
   } catch (error) {
     console.error('Get complaint stats error:', error);
     res.status(500).json({
       success: false,
       error: 'Failed to fetch complaint statistics'
+    });
+  }
+});
+
+// Delete complaint
+router.delete('/:id', auth, async (req, res) => {
+  try {
+    const complaint = await Complaint.findByPk(req.params.id);
+    if (!complaint) {
+      return res.status(404).json({
+        success: false,
+        error: 'Complaint not found'
+      });
+    }
+
+    // Check permissions - only complaint creator, assignee, or admin can delete
+    const canDelete =
+      req.user.role === 'super_admin' ||
+      complaint.raisedBy === req.user.id ||
+      complaint.assignedTo === req.user.id ||
+      (['principal', 'school_admin'].includes(req.user.role) && complaint.schoolId === req.user.schoolId);
+
+    if (!canDelete) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied'
+      });
+    }
+
+    // Delete related updates first
+    await ComplaintUpdate.destroy({
+      where: { complaintId: complaint.id }
+    });
+
+    // Delete the complaint
+    await complaint.destroy();
+
+    res.json({
+      success: true,
+      message: 'Complaint deleted successfully'
+    });
+  } catch (error) {
+    console.error('Delete complaint error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete complaint'
     });
   }
 });

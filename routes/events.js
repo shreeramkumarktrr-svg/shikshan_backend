@@ -33,8 +33,117 @@ const updateEventSchema = Joi.object({
   isPublished: Joi.boolean().optional()
 });
 
+// Get events statistics
+router.get('/stats', authenticate, async (req, res) => {
+  try {
+    const baseWhere = {
+      schoolId: req.user.schoolId
+    };
+
+    // Simplified role-based filtering
+    let whereClause = baseWhere;
+    if (req.user.role === 'student' || req.user.role === 'parent') {
+      whereClause = {
+        ...baseWhere,
+        isPublished: true
+      };
+    }
+
+    const totalEvents = await Event.count({ where: whereClause });
+    
+    const publishedEvents = await Event.count({ 
+      where: { ...baseWhere, isPublished: true } 
+    });
+    
+    const upcomingEvents = await Event.count({
+      where: {
+        ...baseWhere,
+        startDate: { 
+          [Op.and]: [
+            { [Op.ne]: null },
+            { [Op.gte]: new Date() }
+          ]
+        },
+        isPublished: true
+      }
+    });
+    
+    const activeEvents = await Event.count({
+      where: {
+        ...baseWhere,
+        startDate: { 
+          [Op.and]: [
+            { [Op.ne]: null },
+            { [Op.lte]: new Date() }
+          ]
+        },
+        endDate: { 
+          [Op.and]: [
+            { [Op.ne]: null },
+            { [Op.gte]: new Date() }
+          ]
+        },
+        isPublished: true
+      }
+    });
+
+    res.json({
+      totalEvents,
+      publishedEvents,
+      upcomingEvents,
+      activeEvents,
+      eventsByType: {}
+    });
+  } catch (error) {
+    console.error('Get events stats error:', error);
+    res.status(500).json({ error: 'Failed to fetch events statistics' });
+  }
+});
+
+// Get upcoming events
+router.get('/upcoming', authenticate, async (req, res) => {
+  try {
+    const { limit = 5 } = req.query;
+    
+    const whereClause = {
+      schoolId: req.user.schoolId,
+      startDate: { 
+        [Op.and]: [
+          { [Op.ne]: null },
+          { [Op.gte]: new Date() }
+        ]
+      },
+      isPublished: true
+    };
+
+    const events = await Event.findAll({
+      where: whereClause,
+      limit: parseInt(limit),
+      order: [['startDate', 'ASC']],
+      include: [
+        {
+          model: User,
+          as: 'creator',
+          attributes: ['id', 'firstName', 'lastName', 'role']
+        },
+        {
+          model: Class,
+          as: 'class',
+          attributes: ['id', 'name', 'grade', 'section'],
+          required: false
+        }
+      ]
+    });
+
+    res.json({ events });
+  } catch (error) {
+    console.error('Get upcoming events error:', error);
+    res.status(500).json({ error: 'Failed to fetch upcoming events' });
+  }
+});
+
 // Get all events for a school
-router.get('/', authenticate, schoolContext, async (req, res) => {
+router.get('/', authenticate, async (req, res) => {
   try {
     const { page = 1, limit = 10, type, priority, classId, published } = req.query;
     const offset = (page - 1) * limit;
@@ -111,7 +220,7 @@ router.get('/', authenticate, schoolContext, async (req, res) => {
 });
 
 // Get event by ID
-router.get('/:id', authenticate, schoolContext, async (req, res) => {
+router.get('/:id', authenticate, async (req, res) => {
   try {
     const event = await Event.findByPk(req.params.id, {
       include: [

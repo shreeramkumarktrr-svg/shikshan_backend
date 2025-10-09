@@ -16,7 +16,7 @@ async function resetMigrations() {
       ORDER BY name DESC
     `);
 
-    console.log('Found migrations to reset:', migrations.map(m => m.name));
+    );
 
     // Remove these migrations from SequelizeMeta
     for (const migration of migrations) {

@@ -344,12 +344,9 @@ module.exports = {
       console.log('Demo Event already exists, skipping...');
     }
 
-    console.log('Demo data seeded successfully!');
-    console.log('Login credentials:');
-    console.log('Super Admin: admin@shikshan.com / admin123');
-    console.log('Principal: principal@greenwood.edu / admin123');
-    console.log('Teacher: sarah.johnson@greenwood.edu / teacher123');
-    console.log('Student: alex.smith@student.greenwood.edu / student123');
+    
+    
+    
     console.log('Parent: robert.smith@gmail.com / parent123');
   },
 

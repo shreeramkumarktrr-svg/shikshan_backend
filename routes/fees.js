@@ -6,7 +6,7 @@ const { checkFeatureAccess } = require('../middleware/featureAccess');
 const { Op } = require('sequelize');
 
 // Get all fees for a school
-router.get('/', authenticate, checkFeatureAccess('feeManagement'), async (req, res) => {
+router.get('/', authenticate, checkFeatureAccess('fees'), async (req, res) => {
   try {
     const { classId, status } = req.query;
     const whereClause = { schoolId: req.user.schoolId };
@@ -72,7 +72,7 @@ router.get('/', authenticate, checkFeatureAccess('feeManagement'), async (req, r
 });
 
 // Get fee by ID
-router.get('/:id', authenticate, checkFeatureAccess('feeManagement'), async (req, res) => {
+router.get('/:id', authenticate, checkFeatureAccess('fees'), async (req, res) => {
   try {
     const fee = await Fee.findOne({
       where: { 
@@ -123,7 +123,7 @@ router.get('/:id', authenticate, checkFeatureAccess('feeManagement'), async (req
 });
 
 // Get student fees (for parents/students)
-router.get('/student/:studentId', authenticate, checkFeatureAccess('feeManagement'), async (req, res) => {
+router.get('/student/:studentId', authenticate, checkFeatureAccess('fees'), async (req, res) => {
   try {
     const { studentId } = req.params;
     const { status } = req.query;
@@ -187,7 +187,7 @@ router.get('/student/:studentId', authenticate, checkFeatureAccess('feeManagemen
 });
 
 // Get fee statistics
-router.get('/stats/overview', authenticate, checkFeatureAccess('feeManagement'), async (req, res) => {
+router.get('/stats/overview', authenticate, checkFeatureAccess('fees'), async (req, res) => {
   try {
     const { classId } = req.query;
     const whereClause = {};
@@ -245,7 +245,7 @@ router.get('/stats/overview', authenticate, checkFeatureAccess('feeManagement'),
 });
 
 // Create new fee
-router.post('/', authenticate, checkFeatureAccess('feeManagement'), async (req, res) => {
+router.post('/', authenticate, checkFeatureAccess('fees'), async (req, res) => {
   try {
     const { title, description, amount, dueDate, classId } = req.body;
 
@@ -342,7 +342,7 @@ router.post('/', authenticate, checkFeatureAccess('feeManagement'), async (req, 
 });
 
 // Record fee payment
-router.post('/payment/:studentFeeId', authenticate, checkFeatureAccess('feeManagement'), async (req, res) => {
+router.post('/payment/:studentFeeId', authenticate, checkFeatureAccess('fees'), async (req, res) => {
   try {
     const { studentFeeId } = req.params;
     const { paidAmount, paymentMethod, transactionId, notes } = req.body;
@@ -432,7 +432,7 @@ router.post('/payment/:studentFeeId', authenticate, checkFeatureAccess('feeManag
 });
 
 // Update fee
-router.put('/:id', authenticate, checkFeatureAccess('feeManagement'), async (req, res) => {
+router.put('/:id', authenticate, checkFeatureAccess('fees'), async (req, res) => {
   try {
     const { title, description, amount, dueDate, status } = req.body;
 
@@ -516,7 +516,7 @@ router.put('/:id', authenticate, checkFeatureAccess('feeManagement'), async (req
 });
 
 // Delete fee
-router.delete('/:id', authenticate, checkFeatureAccess('feeManagement'), async (req, res) => {
+router.delete('/:id', authenticate, checkFeatureAccess('fees'), async (req, res) => {
   try {
     // Check if user has permission
     if (!['school_admin'].includes(req.user.role)) {

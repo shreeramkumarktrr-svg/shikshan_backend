@@ -8,36 +8,43 @@ module.exports = (sequelize, DataTypes) => {
     userId: {
       type: DataTypes.UUID,
       allowNull: false,
+      unique: true,
       references: {
         model: 'users',
         key: 'id'
-      }
+      },
+      onDelete: 'CASCADE',
+      onUpdate: 'CASCADE'
     },
     classId: {
       type: DataTypes.UUID,
-      allowNull: false,
+      allowNull: true,
       references: {
         model: 'classes',
         key: 'id'
-      }
+      },
+      onDelete: 'SET NULL',
+      onUpdate: 'CASCADE'
     },
     rollNumber: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true, // Allow null initially, can be set later
       validate: {
-        notEmpty: true
+        len: [1, 50]
       }
     },
     admissionNumber: {
       type: DataTypes.STRING,
-      allowNull: false,
+      allowNull: true, // Allow null initially, will be generated
+      unique: true,
       validate: {
-        notEmpty: true
+        len: [1, 50]
       }
     },
     admissionDate: {
       type: DataTypes.DATEONLY,
-      allowNull: false
+      allowNull: false,
+      defaultValue: DataTypes.NOW
     },
     bloodGroup: {
       type: DataTypes.ENUM('A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'),
@@ -79,13 +86,22 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.BOOLEAN,
       allowNull: false,
       defaultValue: true
+    },
+    emergencyContact: {
+      type: DataTypes.STRING,
+      allowNull: true
+    },
+    emergencyContactName: {
+      type: DataTypes.STRING,
+      allowNull: true
     }
   }, {
     tableName: 'students',
     timestamps: true,
     indexes: [
       {
-        fields: ['userId']
+        fields: ['userId'],
+        unique: true
       },
       {
         fields: ['classId']
@@ -94,40 +110,65 @@ module.exports = (sequelize, DataTypes) => {
         fields: ['rollNumber']
       },
       {
-        fields: ['admissionNumber']
+        fields: ['admissionNumber'],
+        unique: true
       },
       {
-        unique: true,
-        fields: ['classId', 'rollNumber']
+        fields: ['isActive']
+      },
+      {
+        fields: ['admissionDate']
       }
     ]
   });
 
   Student.associate = (models) => {
+    // One-to-one with User
     Student.belongsTo(models.User, {
       foreignKey: 'userId',
-      as: 'user'
+      as: 'user',
+      onDelete: 'CASCADE'
     });
     
+    // Many-to-one with Class
     Student.belongsTo(models.Class, {
       foreignKey: 'classId',
       as: 'class'
     });
     
+    // One-to-many with Attendance
     if (models.Attendance) {
       Student.hasMany(models.Attendance, {
         foreignKey: 'studentId',
         as: 'attendanceRecords'
       });
     }
+
+    // One-to-many with Homework Submissions
+    if (models.HomeworkSubmission) {
+      Student.hasMany(models.HomeworkSubmission, {
+        foreignKey: 'studentId',
+        as: 'homeworkSubmissions'
+      });
+    }
+
+    // One-to-many with Student Fees
+    if (models.StudentFee) {
+      Student.hasMany(models.StudentFee, {
+        foreignKey: 'studentId',
+        as: 'fees'
+      });
+    }
     
-    // Many-to-many with Parents through StudentParent
-    Student.belongsToMany(models.User, {
-      through: 'StudentParents',
-      foreignKey: 'studentId',
-      otherKey: 'parentId',
-      as: 'parents'
-    });
+    // Many-to-many with Parents through StudentParents junction table
+    if (models.Parent) {
+      Student.belongsToMany(models.Parent, {
+        through: 'StudentParents',
+        foreignKey: 'studentId',
+        otherKey: 'parentId',
+        as: 'parents'
+      });
+    }
   };
 
   return Student;

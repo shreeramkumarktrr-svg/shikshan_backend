@@ -1,7 +1,7 @@
 const express = require('express');
 const Joi = require('joi');
-const { Op, sequelize } = require('sequelize');
-const { User, School, Student, Parent, Teacher, Class } = require('../models');
+const { Op } = require('sequelize');
+const { User, School, Student, Parent, Teacher, Class, sequelize } = require('../models');
 const { authenticate, authorize, schoolContext } = require('../middleware/auth');
 
 const router = express.Router();
@@ -10,21 +10,21 @@ const router = express.Router();
 const createUserSchema = Joi.object({
   firstName: Joi.string().min(2).max(50).required(),
   lastName: Joi.string().min(2).max(50).required(),
-  email: Joi.string().email().optional(),
+  email: Joi.string().email().allow('').optional(),
   phone: Joi.string().min(10).max(15).required(),
-  password: Joi.string().min(6).optional(),
+  password: Joi.string().min(6).allow('').optional(),
   role: Joi.string().valid('school_admin', 'principal', 'teacher', 'student', 'parent', 'finance_officer', 'support_staff').required(),
-  dateOfBirth: Joi.date().optional(),
-  gender: Joi.string().valid('male', 'female', 'other').optional(),
-  address: Joi.string().optional(),
-  employeeId: Joi.string().optional(),
+  dateOfBirth: Joi.date().allow('').optional(),
+  gender: Joi.string().valid('male', 'female', 'other').allow('').optional(),
+  address: Joi.string().allow('').optional(),
+  employeeId: Joi.string().allow('').optional(),
   subjects: Joi.array().items(Joi.string()).optional(),
   // Student specific fields
-  classId: Joi.string().uuid().optional(),
-  rollNumber: Joi.string().optional(),
-  parentName: Joi.string().optional(),
-  parentContact: Joi.string().min(10).max(15).optional(),
-  parentEmail: Joi.string().email().optional(),
+  classId: Joi.string().uuid().allow('', null).optional(),
+  rollNumber: Joi.string().allow('').optional(),
+  parentName: Joi.string().allow('').optional(),
+  parentContact: Joi.string().min(10).max(15).allow('').optional(),
+  parentEmail: Joi.string().email().allow('').optional(),
   // Teacher specific fields
   classTeacher: Joi.boolean().optional()
 });
@@ -43,13 +43,22 @@ const updateUserSchema = Joi.object({
 });
 
 // Get all users for a school
-router.get('/', authenticate, schoolContext, authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
+router.get('/', authenticate, authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
   try {
-    const { page = 1, limit = 10, role, search, active } = req.query;
+    const { page = 1, limit = 10, role, search, active, schoolId } = req.query;
     const offset = (page - 1) * limit;
 
+    // Determine school ID - super admin can query any school, others use their own
+    const targetSchoolId = req.user.role === 'super_admin' && schoolId
+      ? schoolId
+      : req.user.schoolId;
+
+    if (!targetSchoolId) {
+      return res.status(400).json({ error: 'School ID is required' });
+    }
+
     const whereClause = {
-      schoolId: req.user.schoolId || req.query.schoolId
+      schoolId: targetSchoolId
     };
 
     // Filter by role - handle comma-separated roles
@@ -79,6 +88,7 @@ router.get('/', authenticate, schoolContext, authorize('super_admin', 'school_ad
       ];
     }
 
+    
     const { count, rows: users } = await User.findAndCountAll({
       where: whereClause,
       limit: parseInt(limit),
@@ -116,6 +126,10 @@ router.get('/', authenticate, schoolContext, authorize('super_admin', 'school_ad
       ]
     });
 
+    ,
+      userSchoolIds: users.map(u => u.schoolId)
+    });
+
     res.json({
       users,
       pagination: {
@@ -132,7 +146,7 @@ router.get('/', authenticate, schoolContext, authorize('super_admin', 'school_ad
 });
 
 // Get user by ID
-router.get('/:id', authenticate, schoolContext, async (req, res) => {
+router.get('/:id', authenticate, async (req, res) => {
   try {
     const user = await User.findByPk(req.params.id, {
       attributes: { exclude: ['passwordHash'] },
@@ -171,8 +185,8 @@ router.get('/:id', authenticate, schoolContext, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Check if user has access
-    if (user.schoolId !== req.user.schoolId && req.user.role !== 'super_admin') {
+    // Check if user has access - super admin can access any user, others only their school
+    if (req.user.role !== 'super_admin' && user.schoolId !== req.user.schoolId) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -188,10 +202,19 @@ router.post('/', authenticate, authorize('super_admin', 'school_admin', 'princip
   try {
     const { error, value } = createUserSchema.validate(req.body);
     if (error) {
-      return res.status(400).json({ 
-        error: 'Validation failed', 
-        details: error.details.map(d => d.message) 
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: error.details.map(d => d.message)
       });
+    }
+
+    // Determine school ID - super admin can specify schoolId, others use their own
+    const targetSchoolId = req.user.role === 'super_admin' && req.query.schoolId
+      ? req.query.schoolId
+      : req.user.schoolId;
+
+    if (!targetSchoolId) {
+      return res.status(400).json({ error: 'School ID is required' });
     }
 
     // Check if user already exists
@@ -201,7 +224,7 @@ router.post('/', authenticate, authorize('super_admin', 'school_admin', 'princip
           { email: value.email },
           { phone: value.phone }
         ],
-        schoolId: req.user.schoolId
+        schoolId: targetSchoolId
       }
     });
 
@@ -212,43 +235,64 @@ router.post('/', authenticate, authorize('super_admin', 'school_admin', 'princip
     // Generate default password if not provided
     const password = value.password || `${value.firstName.toLowerCase()}123`;
 
+    // Clean the data - convert empty strings to null for optional fields
+    const cleanedValue = { ...value };
+    if (cleanedValue.classId === '') cleanedValue.classId = null;
+    if (cleanedValue.email === '') cleanedValue.email = null;
+    if (cleanedValue.employeeId === '') cleanedValue.employeeId = null;
+    if (cleanedValue.dateOfBirth === '') cleanedValue.dateOfBirth = null;
+    if (cleanedValue.address === '') cleanedValue.address = null;
+
     const user = await User.create({
-      ...value,
+      ...cleanedValue,
       passwordHash: password, // Will be hashed by the model hook
-      schoolId: req.user.schoolId
+      schoolId: targetSchoolId
     });
 
     // Create role-specific profile
     if (value.role === 'student') {
       const studentData = {
         userId: user.id,
-        classId: value.classId,
-        rollNumber: value.rollNumber || `${Date.now()}`,
-        admissionNumber: `ADM${Date.now()}`,
+        classId: cleanedValue.classId || null, // Use cleaned value or null
+        rollNumber: value.rollNumber || `ROLL${Date.now()}${Math.floor(Math.random() * 1000)}`,
+        admissionNumber: `ADM${Date.now()}${Math.floor(Math.random() * 1000)}`,
         admissionDate: new Date(),
         isActive: true
       };
 
-      const student = await Student.create(studentData);
+      try {
+        const student = await Student.create(studentData);
+        console.log('Student profile created:', student.id);
+      } catch (studentError) {
+        console.error('Student profile creation failed:', studentError);
+        // If student profile creation fails, we should still continue
+        // The user is created, just without the student profile
+      }
 
       // Create parent profile if parent information is provided
       if (value.parentName && value.parentContact) {
-        const parentUser = await User.create({
-          firstName: value.parentName.split(' ')[0] || value.parentName,
-          lastName: value.parentName.split(' ').slice(1).join(' ') || '',
-          email: value.parentEmail,
-          phone: value.parentContact,
-          role: 'parent',
-          schoolId: req.user.schoolId,
-          passwordHash: `${value.parentName.toLowerCase().replace(/\s+/g, '')}123`
-        });
+        try {
+          const parentUser = await User.create({
+            firstName: value.parentName.split(' ')[0] || value.parentName,
+            lastName: value.parentName.split(' ').slice(1).join(' ') || '',
+            email: value.parentEmail || null,
+            phone: value.parentContact,
+            role: 'parent',
+            schoolId: targetSchoolId,
+            passwordHash: `${value.parentName.toLowerCase().replace(/\s+/g, '')}123`
+          });
 
-        await Parent.create({
-          userId: parentUser.id
-        });
+          await Parent.create({
+            userId: parentUser.id
+          });
 
-        // Link parent to student (you may need to create a junction table)
-        // This depends on your database schema
+          console.log('Parent profile created:', parentUser.id);
+          // Link parent to student (you may need to create a junction table)
+          // This depends on your database schema
+        } catch (parentError) {
+          console.error('Parent profile creation failed:', parentError);
+          // Continue even if parent creation fails
+        }
       }
     } else if (value.role === 'parent') {
       await Parent.create({
@@ -294,13 +338,13 @@ router.post('/', authenticate, authorize('super_admin', 'school_admin', 'princip
 });
 
 // Update user
-router.put('/:id', authenticate, schoolContext, async (req, res) => {
+router.put('/:id', authenticate, async (req, res) => {
   try {
     const { error, value } = updateUserSchema.validate(req.body);
     if (error) {
-      return res.status(400).json({ 
-        error: 'Validation failed', 
-        details: error.details.map(d => d.message) 
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: error.details.map(d => d.message)
       });
     }
 
@@ -309,8 +353,8 @@ router.put('/:id', authenticate, schoolContext, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Check permissions
-    if (user.schoolId !== req.user.schoolId && req.user.role !== 'super_admin') {
+    // Check permissions - super admin can update any user, others only their school
+    if (req.user.role !== 'super_admin' && user.schoolId !== req.user.schoolId) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -351,8 +395,8 @@ router.delete('/:id', authenticate, authorize('super_admin', 'school_admin', 'pr
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Check permissions
-    if (user.schoolId !== req.user.schoolId && req.user.role !== 'super_admin') {
+    // Check permissions - super admin can delete any user, others only their school
+    if (req.user.role !== 'super_admin' && user.schoolId !== req.user.schoolId) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -385,7 +429,12 @@ router.put('/:id/password', authenticate, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Check permissions
+    // Check school permissions - super admin can change any password, others only their school
+    if (req.user.role !== 'super_admin' && user.schoolId !== req.user.schoolId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    // Check role permissions
     if (user.id !== req.user.id && !['super_admin', 'school_admin', 'principal'].includes(req.user.role)) {
       return res.status(403).json({ error: 'Insufficient permissions' });
     }
@@ -408,35 +457,39 @@ router.put('/:id/password', authenticate, async (req, res) => {
 });
 
 // Get user statistics
-router.get('/stats/summary', authenticate, schoolContext, authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
+router.get('/stats/summary', authenticate, authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
   try {
-    const schoolId = req.user.schoolId || req.query.schoolId;
+    // Determine school ID - super admin can query any school, others use their own
+    const schoolId = req.user.role === 'super_admin' && req.query.schoolId
+      ? req.query.schoolId
+      : req.user.schoolId;
 
-    const stats = await User.findAll({
-      where: { schoolId, isActive: true },
-      attributes: [
-        'role',
-        [sequelize.fn('COUNT', sequelize.col('id')), 'count']
-      ],
-      group: ['role'],
+    if (!schoolId) {
+      return res.status(400).json({ error: 'School ID is required' });
+    }
+
+    // Get all users for the school
+    const allUsers = await User.findAll({
+      where: { schoolId },
+      attributes: ['role', 'isActive'],
       raw: true
     });
 
-    const totalUsers = await User.count({
-      where: { schoolId, isActive: true }
-    });
-
-    const inactiveUsers = await User.count({
-      where: { schoolId, isActive: false }
+    // Calculate stats manually
+    const totalUsers = allUsers.filter(user => user.isActive).length;
+    const inactiveUsers = allUsers.filter(user => !user.isActive).length;
+    
+    const usersByRole = {};
+    allUsers.forEach(user => {
+      if (user.isActive) {
+        usersByRole[user.role] = (usersByRole[user.role] || 0) + 1;
+      }
     });
 
     res.json({
       totalUsers,
       inactiveUsers,
-      usersByRole: stats.reduce((acc, curr) => {
-        acc[curr.role] = parseInt(curr.count);
-        return acc;
-      }, {})
+      usersByRole
     });
   } catch (error) {
     console.error('Get user stats error:', error);
@@ -445,35 +498,39 @@ router.get('/stats/summary', authenticate, schoolContext, authorize('super_admin
 });
 
 // Alias for stats endpoint (for compatibility)
-router.get('/stats', authenticate, schoolContext, authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
+router.get('/stats', authenticate, authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
   try {
-    const schoolId = req.user.schoolId || req.query.schoolId;
+    // Determine school ID - super admin can query any school, others use their own
+    const schoolId = req.user.role === 'super_admin' && req.query.schoolId
+      ? req.query.schoolId
+      : req.user.schoolId;
 
-    const stats = await User.findAll({
-      where: { schoolId, isActive: true },
-      attributes: [
-        'role',
-        [sequelize.fn('COUNT', sequelize.col('id')), 'count']
-      ],
-      group: ['role'],
+    if (!schoolId) {
+      return res.status(400).json({ error: 'School ID is required' });
+    }
+
+    // Get all users for the school
+    const allUsers = await User.findAll({
+      where: { schoolId },
+      attributes: ['role', 'isActive'],
       raw: true
     });
 
-    const totalUsers = await User.count({
-      where: { schoolId, isActive: true }
-    });
-
-    const inactiveUsers = await User.count({
-      where: { schoolId, isActive: false }
+    // Calculate stats manually
+    const totalUsers = allUsers.filter(user => user.isActive).length;
+    const inactiveUsers = allUsers.filter(user => !user.isActive).length;
+    
+    const usersByRole = {};
+    allUsers.forEach(user => {
+      if (user.isActive) {
+        usersByRole[user.role] = (usersByRole[user.role] || 0) + 1;
+      }
     });
 
     res.json({
       totalUsers,
       inactiveUsers,
-      usersByRole: stats.reduce((acc, curr) => {
-        acc[curr.role] = parseInt(curr.count);
-        return acc;
-      }, {})
+      usersByRole
     });
   } catch (error) {
     console.error('Get user stats error:', error);
@@ -498,7 +555,7 @@ router.post('/bulk', authenticate, authorize('super_admin', 'school_admin', 'pri
     for (let i = 0; i < users.length; i++) {
       try {
         const userData = users[i];
-        
+
         // Validate each user
         const { error, value } = createUserSchema.validate(userData);
         if (error) {
@@ -533,8 +590,16 @@ router.post('/bulk', authenticate, authorize('super_admin', 'school_admin', 'pri
         // Generate default password
         const password = value.password || `${value.firstName.toLowerCase()}123`;
 
+        // Clean the data - convert empty strings to null for optional fields
+        const cleanedValue = { ...value };
+        if (cleanedValue.classId === '') cleanedValue.classId = null;
+        if (cleanedValue.email === '') cleanedValue.email = null;
+        if (cleanedValue.employeeId === '') cleanedValue.employeeId = null;
+        if (cleanedValue.dateOfBirth === '') cleanedValue.dateOfBirth = null;
+        if (cleanedValue.address === '') cleanedValue.address = null;
+
         const user = await User.create({
-          ...value,
+          ...cleanedValue,
           passwordHash: password,
           schoolId: req.user.schoolId
         });
@@ -587,8 +652,8 @@ router.post('/:id/reset-password', authenticate, authorize('super_admin', 'schoo
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Check permissions
-    if (user.schoolId !== req.user.schoolId && req.user.role !== 'super_admin') {
+    // Check permissions - super admin can reset any password, others only their school
+    if (req.user.role !== 'super_admin' && user.schoolId !== req.user.schoolId) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -596,9 +661,9 @@ router.post('/:id/reset-password', authenticate, authorize('super_admin', 'schoo
     const newPassword = `${user.firstName.toLowerCase()}123`;
     await user.update({ passwordHash: newPassword });
 
-    res.json({ 
+    res.json({
       message: 'Password reset successfully',
-      newPassword 
+      newPassword
     });
   } catch (error) {
     console.error('Reset password error:', error);
@@ -610,7 +675,7 @@ router.post('/:id/reset-password', authenticate, authorize('super_admin', 'schoo
 router.patch('/:id/status', authenticate, authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
   try {
     const { isActive } = req.body;
-    
+
     if (typeof isActive !== 'boolean') {
       return res.status(400).json({ error: 'isActive must be a boolean' });
     }
@@ -620,8 +685,8 @@ router.patch('/:id/status', authenticate, authorize('super_admin', 'school_admin
       return res.status(404).json({ error: 'User not found' });
     }
 
-    // Check permissions
-    if (user.schoolId !== req.user.schoolId && req.user.role !== 'super_admin') {
+    // Check permissions - super admin can update any user status, others only their school
+    if (req.user.role !== 'super_admin' && user.schoolId !== req.user.schoolId) {
       return res.status(403).json({ error: 'Access denied' });
     }
 
@@ -632,7 +697,7 @@ router.patch('/:id/status', authenticate, authorize('super_admin', 'school_admin
 
     await user.update({ isActive });
 
-    res.json({ 
+    res.json({
       message: `User ${isActive ? 'activated' : 'deactivated'} successfully`,
       user: {
         id: user.id,
@@ -647,7 +712,7 @@ router.patch('/:id/status', authenticate, authorize('super_admin', 'school_admin
 });
 
 // Get users by role
-router.get('/role/:role', authenticate, schoolContext, async (req, res) => {
+router.get('/role/:role', authenticate, async (req, res) => {
   try {
     const { role } = req.params;
     const { active = 'true' } = req.query;
@@ -670,7 +735,7 @@ router.get('/role/:role', authenticate, schoolContext, async (req, res) => {
 });
 
 // Get user activity log
-router.get('/:id/activity', authenticate, schoolContext, async (req, res) => {
+router.get('/:id/activity', authenticate, async (req, res) => {
   try {
     const { id } = req.params;
     const { action, dateFrom, dateTo, limit = 20 } = req.query;

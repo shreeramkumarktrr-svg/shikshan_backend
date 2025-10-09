@@ -10,9 +10,9 @@ const checkFeatureAccess = (featureName) => {
     try {
       // Get school ID from user context or request
       const schoolId = req.user?.schoolId || req.params.schoolId;
-      
+
       if (!schoolId) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           error: 'School context required',
           code: 'SCHOOL_CONTEXT_MISSING'
         });
@@ -28,7 +28,7 @@ const checkFeatureAccess = (featureName) => {
       });
 
       if (!school) {
-        return res.status(404).json({ 
+        return res.status(404).json({
           error: 'School not found',
           code: 'SCHOOL_NOT_FOUND'
         });
@@ -36,7 +36,7 @@ const checkFeatureAccess = (featureName) => {
 
       // Check if school has active subscription
       if (school.subscriptionStatus !== 'active' && school.subscriptionStatus !== 'trial') {
-        return res.status(403).json({ 
+        return res.status(403).json({
           error: 'Subscription is not active',
           code: 'SUBSCRIPTION_INACTIVE',
           subscriptionStatus: school.subscriptionStatus
@@ -44,11 +44,22 @@ const checkFeatureAccess = (featureName) => {
       }
 
       // Check if subscription has the required feature
-      const subscriptionFeatures = school.subscription?.features || {};
+      let subscriptionFeatures = school.subscription?.features || {};
+      
+      // Handle both string and object formats for features
+      if (typeof subscriptionFeatures === 'string') {
+        try {
+          subscriptionFeatures = JSON.parse(subscriptionFeatures);
+        } catch (error) {
+          console.error('Failed to parse subscription features:', error);
+          subscriptionFeatures = {};
+        }
+      }
+      
       const hasFeature = subscriptionFeatures[featureName] === true;
 
       if (!hasFeature) {
-        return res.status(403).json({ 
+        return res.status(403).json({
           error: `Access denied. Feature '${featureName}' is not included in your subscription plan.`,
           code: 'FEATURE_NOT_AVAILABLE',
           feature: featureName,
@@ -68,7 +79,7 @@ const checkFeatureAccess = (featureName) => {
       next();
     } catch (error) {
       console.error('Feature access check error:', error);
-      res.status(500).json({ 
+      res.status(500).json({
         error: 'Failed to verify feature access',
         code: 'FEATURE_CHECK_ERROR'
       });
@@ -95,7 +106,18 @@ const getSchoolFeatures = async (schoolId) => {
       throw new Error('School not found');
     }
 
-    const features = school.subscription?.features || {};
+    let features = school.subscription?.features || {};
+    
+    // Handle both string and object formats for features
+    if (typeof features === 'string') {
+      try {
+        features = JSON.parse(features);
+      } catch (error) {
+        console.error('Failed to parse subscription features:', error);
+        features = {};
+      }
+    }
+    
     const availableFeatures = Object.keys(features).filter(key => features[key] === true);
     const unavailableFeatures = Object.keys(features).filter(key => features[key] === false);
 
@@ -133,9 +155,9 @@ const checkMultipleFeatures = (featureNames) => {
   return async (req, res, next) => {
     try {
       const schoolId = req.user?.schoolId || req.params.schoolId;
-      
+
       if (!schoolId) {
-        return res.status(400).json({ 
+        return res.status(400).json({
           error: 'School context required',
           code: 'SCHOOL_CONTEXT_MISSING'
         });
@@ -150,25 +172,36 @@ const checkMultipleFeatures = (featureNames) => {
       });
 
       if (!school) {
-        return res.status(404).json({ 
+        return res.status(404).json({
           error: 'School not found',
           code: 'SCHOOL_NOT_FOUND'
         });
       }
 
       if (school.subscriptionStatus !== 'active' && school.subscriptionStatus !== 'trial') {
-        return res.status(403).json({ 
+        return res.status(403).json({
           error: 'Subscription is not active',
           code: 'SUBSCRIPTION_INACTIVE',
           subscriptionStatus: school.subscriptionStatus
         });
       }
 
-      const subscriptionFeatures = school.subscription?.features || {};
+      let subscriptionFeatures = school.subscription?.features || {};
+      
+      // Handle both string and object formats for features
+      if (typeof subscriptionFeatures === 'string') {
+        try {
+          subscriptionFeatures = JSON.parse(subscriptionFeatures);
+        } catch (error) {
+          console.error('Failed to parse subscription features:', error);
+          subscriptionFeatures = {};
+        }
+      }
+      
       const missingFeatures = featureNames.filter(feature => !subscriptionFeatures[feature]);
 
       if (missingFeatures.length > 0) {
-        return res.status(403).json({ 
+        return res.status(403).json({
           error: `Access denied. Required features not available: ${missingFeatures.join(', ')}`,
           code: 'FEATURES_NOT_AVAILABLE',
           missingFeatures,
@@ -186,7 +219,7 @@ const checkMultipleFeatures = (featureNames) => {
       next();
     } catch (error) {
       console.error('Multiple feature access check error:', error);
-      res.status(500).json({ 
+      res.status(500).json({
         error: 'Failed to verify feature access',
         code: 'FEATURE_CHECK_ERROR'
       });

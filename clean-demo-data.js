@@ -27,9 +27,7 @@ async function cleanDemoData() {
     console.log('Deleted demo users');
     
     await sequelize.query(`DELETE FROM schools WHERE email = 'admin@greenwood.edu'`);
-    console.log('Deleted demo schools');
     
-    console.log('Demo data cleanup completed successfully!');
     
   } catch (error) {
     console.error('Error cleaning demo data:', error);

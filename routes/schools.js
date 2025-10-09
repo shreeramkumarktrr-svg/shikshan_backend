@@ -204,12 +204,8 @@ router.get('/:id', authenticate, schoolContext, async (req, res) => {
 // Update school
 router.put('/:id', authenticate, schoolContext, authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
   try {
-    console.log('Update school request body:', req.body);
-    
     const { error, value } = updateSchoolSchema.validate(req.body);
-    if (error) {
-      console.log('Validation error:', error.details);
-      return res.status(400).json({ 
+    if (error) {return res.status(400).json({ 
         error: 'Validation failed', 
         details: error.details.map(d => d.message),
         receivedData: req.body
@@ -221,8 +217,6 @@ router.put('/:id', authenticate, schoolContext, authorize('super_admin', 'school
       return res.status(404).json({ error: 'School not found' });
     }
 
-    console.log('Updating school with validated data:', value);
-    
     // Clean the data before updating
     const updateData = {};
     Object.keys(value).forEach(key => {
@@ -244,8 +238,7 @@ router.put('/:id', authenticate, schoolContext, authorize('super_admin', 'school
     
     try {
       await school.update(updateData);
-      console.log('School updated successfully');
-    } catch (dbError) {
+      } catch (dbError) {
       console.error('Database update error:', dbError);
       return res.status(400).json({ 
         error: 'Database update failed', 
@@ -330,18 +323,15 @@ router.delete('/:id', authenticate, authorize('super_admin'), async (req, res) =
   }
 });
 
+// Duplicate route removed - using the one with proper middleware below
+
 // Get school statistics
 router.get('/:id/stats', authenticate, schoolContext, async (req, res) => {
   try {
-    console.log('Stats endpoint called for school:', req.params.id);
-    
     const school = await School.findByPk(req.params.id);
     if (!school) {
-      console.log('School not found:', req.params.id);
       return res.status(404).json({ error: 'School not found' });
     }
-
-    console.log('School found:', school.name);
 
     // Get user counts one by one to isolate any issues
     let studentCount = 0;
@@ -412,7 +402,6 @@ router.get('/:id/stats', authenticate, schoolContext, async (req, res) => {
       }
     };
 
-    console.log('Stats calculated successfully:', stats);
     res.json({ stats });
   } catch (error) {
     console.error('Get school stats error:', error);

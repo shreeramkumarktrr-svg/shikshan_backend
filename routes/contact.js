@@ -293,7 +293,6 @@ router.get('/test', async (req, res) => {
       message: 'Email configuration is working correctly'
     });
   } catch (error) {
-    console.error('Email test error:', error);
     res.status(500).json({
       success: false,
       error: 'Email configuration test failed',

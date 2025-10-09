@@ -131,7 +131,7 @@ router.post('/', authenticate, authorize('super_admin', 'school_admin', 'princip
 });
 
 // Get attendance for a class
-router.get('/class/:classId', authenticate, schoolContext, async (req, res) => {
+router.get('/class/:classId', authenticate, async (req, res) => {
   try {
     const { classId } = req.params;
     const { date, startDate, endDate, page = 1, limit = 10 } = req.query;
@@ -333,7 +333,7 @@ router.post('/staff', authenticate, authorize('super_admin', 'school_admin', 'pr
 });
 
 // Get staff attendance
-router.get('/staff', authenticate, schoolContext, async (req, res) => {
+router.get('/staff', authenticate, async (req, res) => {
   try {
     const { date, startDate, endDate, staffId, page = 1, limit = 10 } = req.query;
     const offset = (page - 1) * limit;
@@ -392,7 +392,7 @@ router.get('/staff', authenticate, schoolContext, async (req, res) => {
 });
 
 // Get staff attendance statistics
-router.get('/staff/stats', authenticate, schoolContext, authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
+router.get('/staff/stats', authenticate, authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
   try {
     const { startDate, endDate, staffId } = req.query;
 

@@ -5,16 +5,12 @@ module.exports = {
     // Remove attachments column from complaints table
     try {
       await queryInterface.removeColumn('complaints', 'attachments');
-    } catch (error) {
-      console.log('Column attachments may not exist in complaints table:', error.message);
-    }
+    } catch (error) {}
 
     // Remove attachments column from complaint_updates table
     try {
       await queryInterface.removeColumn('complaint_updates', 'attachments');
-    } catch (error) {
-      console.log('Column attachments may not exist in complaint_updates table:', error.message);
-    }
+    } catch (error) {}
 
     // Update the updateType enum to remove 'attachment' option
     try {
@@ -23,9 +19,7 @@ module.exports = {
         allowNull: false,
         defaultValue: 'comment'
       });
-    } catch (error) {
-      console.log('Could not update updateType enum:', error.message);
-    }
+    } catch (error) {}
   },
 
   async down(queryInterface, Sequelize) {

@@ -13,7 +13,7 @@ const createHomeworkSchema = Joi.object({
   description: Joi.string().optional(),
   instructions: Joi.string().optional(),
   subject: Joi.string().min(1).max(100).required(),
-  classId: Joi.string().uuid().optional(),
+  classId: Joi.string().uuid().required(),
   assignedDate: Joi.date().optional(),
   dueDate: Joi.date().required(),
   maxMarks: Joi.number().integer().min(1).max(1000).default(100),
@@ -66,7 +66,7 @@ const gradeHomeworkSchema = Joi.object({
 });
 
 // Get all homework for a school/class
-router.get('/', authenticate, schoolContext, checkFeatureAccess('homework'), async (req, res) => {
+router.get('/', authenticate, checkFeatureAccess('homework'), async (req, res) => {
   try {
     const { page = 1, limit = 10, classId, subject, type, priority, status, studentId } = req.query;
     const offset = (page - 1) * limit;
@@ -194,7 +194,7 @@ router.get('/', authenticate, schoolContext, checkFeatureAccess('homework'), asy
 });
 
 // Get homework statistics
-router.get('/stats/overview', authenticate, schoolContext, checkFeatureAccess('homework'), async (req, res) => {
+router.get('/stats/overview', authenticate, checkFeatureAccess('homework'), async (req, res) => {
   try {
     const { classId } = req.query;
     
@@ -255,7 +255,7 @@ router.get('/stats/overview', authenticate, schoolContext, checkFeatureAccess('h
 });
 
 // Get homework by ID
-router.get('/:id', authenticate, schoolContext, checkFeatureAccess('homework'), async (req, res) => {
+router.get('/:id', authenticate, checkFeatureAccess('homework'), async (req, res) => {
   try {
     const homework = await Homework.findByPk(req.params.id, {
       include: [
@@ -565,6 +565,90 @@ router.post('/:id/submit', authenticate, authorize('student'), checkFeatureAcces
   } catch (error) {
     console.error('Submit homework error:', error);
     res.status(500).json({ error: 'Failed to submit homework' });
+  }
+});
+
+// Get all homework submissions
+router.get('/submissions', authenticate, checkFeatureAccess('homework'), async (req, res) => {
+  try {
+    const { page = 1, limit = 10, homeworkId, status, studentId } = req.query;
+    const offset = (page - 1) * limit;
+
+    const whereClause = {};
+
+    // Filter by homework ID
+    if (homeworkId) {
+      whereClause.homeworkId = homeworkId;
+    }
+
+    // Filter by status
+    if (status) {
+      whereClause.status = status;
+    }
+
+    // Filter by student ID
+    if (studentId) {
+      whereClause.studentId = studentId;
+    }
+
+    // Role-based filtering
+    if (req.user.role === 'student') {
+      const student = await Student.findOne({ where: { userId: req.user.id } });
+      if (student) {
+        whereClause.studentId = student.id;
+      } else {
+        // If no student record found, return empty results
+        return res.json({
+          submissions: [],
+          pagination: { page: 1, limit: parseInt(limit), total: 0, pages: 0 }
+        });
+      }
+    }
+
+    // Simplified include structure to avoid association issues
+    const includeArray = [
+      {
+        model: Homework,
+        as: 'homework',
+        attributes: ['id', 'title', 'subject', 'maxMarks', 'dueDate', 'schoolId'],
+        where: { schoolId: req.user.schoolId }
+      }
+    ];
+
+    // Only include student details if user has permission
+    if (['super_admin', 'school_admin', 'principal', 'teacher'].includes(req.user.role)) {
+      includeArray.push({
+        model: Student,
+        as: 'student',
+        attributes: ['id', 'userId'],
+        include: [{
+          model: User,
+          as: 'user',
+          attributes: ['id', 'firstName', 'lastName']
+        }]
+      });
+    }
+
+    const { count, rows: submissions } = await HomeworkSubmission.findAndCountAll({
+      where: whereClause,
+      limit: parseInt(limit),
+      offset: parseInt(offset),
+      order: [['submittedAt', 'DESC']],
+      include: includeArray
+    });
+
+    res.json({
+      submissions,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: count,
+        pages: Math.ceil(count / limit)
+      }
+    });
+  } catch (error) {
+    console.error('Get homework submissions error:', error);
+    res.status(500).json({ error: 'Failed to fetch homework submissions' });
   }
 });
 

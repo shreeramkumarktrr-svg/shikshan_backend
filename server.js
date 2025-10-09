@@ -30,18 +30,6 @@ const PORT = process.env.PORT || 5000;
 // Security middleware
 app.use(helmet());
 
-// Rate limiting - more lenient for development
-const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || (process.env.NODE_ENV === 'development' ? 2000 : 100), // Higher limit for development
-  message: 'Too many requests from this IP, please try again later.',
-  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-  skip: (req) => req.method === 'OPTIONS',
-
-});
-app.use(limiter);
-
 // CORS configuration
 // --- CORS configuration (replace your existing block) ---
 const allowedOrigins = [
@@ -75,6 +63,18 @@ app.use(cors(corsOptions));
 
 // Also handle preflight OPTIONS manually (important!)
 app.options('*', cors(corsOptions));
+
+// Rate limiting - very lenient for development and testing
+const limiter = rateLimit({
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 1 * 60 * 1000, // 1 minute window
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || (process.env.NODE_ENV === 'development' ? 10000 : 1000), // Much higher limits
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+  skip: (req) => req.method === 'OPTIONS',
+
+});
+app.use(limiter);
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
@@ -157,19 +157,14 @@ const startServer = async () => {
   try {
     // Test database connection
     await db.sequelize.authenticate();
-    console.log('Database connection established successfully.');
-
     // Sync database (only in development)
     if (process.env.NODE_ENV === 'development') {
       await db.sequelize.sync({ alter: true });
-      console.log('Database synchronized.');
-    }
+      }
 
     app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
-      console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-      console.log(`Health check: http://localhost:${PORT}/health`);
-    });
+      
+      });
   } catch (error) {
     console.error('Unable to start server:', error);
     process.exit(1);

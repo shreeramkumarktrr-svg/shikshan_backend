@@ -15,8 +15,6 @@ module.exports = {
       return results[0].count > 0;
     };
 
-    console.log('Starting comprehensive test data seeding...');
-
     // 1. Ensure subscription plans exist (Basic, Standard, Premium)
     const subscriptionPlans = [
       {
@@ -161,14 +159,12 @@ module.exports = {
           updatedAt: now
         }]);
         createdSchools.push(school);
-        console.log(`School ${school.name} created`);
-      } else {
+        } else {
         const [existingSchool] = await queryInterface.sequelize.query(
           `SELECT * FROM schools WHERE email = '${school.email}' LIMIT 1`
         );
         createdSchools.push({ ...school, id: existingSchool[0].id });
-        console.log(`School ${school.name} already exists`);
-      }
+        }
     }
 
     // 3. Create school admins for each school
@@ -199,8 +195,7 @@ module.exports = {
           updatedAt: now
         }]);
         schoolAdmins.push({ id: adminId, schoolId: school.id, email: adminEmail });
-        console.log(`School admin created for ${school.name}`);
-      }
+        }
     }
 
     // 4. Create teachers for each school (3 per school)
@@ -331,9 +326,7 @@ module.exports = {
         }
       }, {});
       
-      console.log('Comprehensive test data cleaned up');
-    } catch (error) {
-      console.error('Error cleaning up comprehensive test data:', error);
-    }
+      } catch (error) {
+      }
   }
 };

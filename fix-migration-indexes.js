@@ -2,8 +2,6 @@ const { sequelize } = require('./models');
 
 async function fixMigrationIssues() {
   try {
-    console.log('Checking and fixing migration issues...');
-    
     // Drop problematic indexes if they exist
     const indexesToDrop = [
       'subscriptions_plan_type',
@@ -43,8 +41,7 @@ async function fixMigrationIssues() {
         console.log('subscriptionId column does not exist in schools table');
       }
     } catch (error) {
-      console.log('Could not check schools table structure');
-    }
+      }
 
     console.log('Migration issue cleanup completed. You can now run migrations.');
     
