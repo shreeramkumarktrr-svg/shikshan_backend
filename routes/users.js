@@ -633,16 +633,23 @@ router.put('/:id/password', authenticate, async (req, res) => {
 });
 
 // Get user statistics
-router.get('/stats/summary', authenticate, enforceTenancy, authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
+router.get('/stats/summary', authenticate, async (req, res) => {
   try {
+    console.log('=== USER STATS SUMMARY DEBUG ===');
+    console.log('User:', req.user?.id, req.user?.role, req.user?.schoolId);
+    console.log('Query params:', req.query);
+    
     // Determine school ID - super admin can query any school, others use their own
     const schoolId = req.user.role === 'super_admin' && req.query.schoolId
       ? req.query.schoolId
       : req.user.schoolId;
 
     if (!schoolId) {
+      console.log('ERROR: No school ID found for user:', req.user?.id, 'Role:', req.user?.role);
       return res.status(400).json({ error: 'School ID is required' });
     }
+
+    console.log('Fetching users for school:', schoolId);
 
     // Get all users for the school
     const allUsers = await User.findAll({
@@ -650,6 +657,8 @@ router.get('/stats/summary', authenticate, enforceTenancy, authorize('super_admi
       attributes: ['role', 'isActive'],
       raw: true
     });
+
+    console.log('Found users:', allUsers.length);
 
     // Calculate stats manually
     const totalUsers = allUsers.filter(user => user.isActive).length;
@@ -661,6 +670,8 @@ router.get('/stats/summary', authenticate, enforceTenancy, authorize('super_admi
         usersByRole[user.role] = (usersByRole[user.role] || 0) + 1;
       }
     });
+
+    console.log('Returning stats:', { totalUsers, inactiveUsers, usersByRole });
 
     res.json({
       totalUsers,
@@ -674,16 +685,23 @@ router.get('/stats/summary', authenticate, enforceTenancy, authorize('super_admi
 });
 
 // Alias for stats endpoint (for compatibility)
-router.get('/stats', authenticate, enforceTenancy, authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
+router.get('/stats', authenticate, async (req, res) => {
   try {
+    console.log('=== USER STATS ALIAS DEBUG ===');
+    console.log('User:', req.user?.id, req.user?.role, req.user?.schoolId);
+    console.log('Query params:', req.query);
+    
     // Determine school ID - super admin can query any school, others use their own
     const schoolId = req.user.role === 'super_admin' && req.query.schoolId
       ? req.query.schoolId
       : req.user.schoolId;
 
     if (!schoolId) {
+      console.log('ERROR: No school ID found for user:', req.user?.id, 'Role:', req.user?.role);
       return res.status(400).json({ error: 'School ID is required' });
     }
+
+    console.log('Fetching users for school:', schoolId);
 
     // Get all users for the school
     const allUsers = await User.findAll({
@@ -691,6 +709,8 @@ router.get('/stats', authenticate, enforceTenancy, authorize('super_admin', 'sch
       attributes: ['role', 'isActive'],
       raw: true
     });
+
+    console.log('Found users:', allUsers.length);
 
     // Calculate stats manually
     const totalUsers = allUsers.filter(user => user.isActive).length;

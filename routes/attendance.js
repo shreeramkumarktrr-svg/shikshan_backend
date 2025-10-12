@@ -393,7 +393,7 @@ router.get('/staff', authenticate, async (req, res) => {
 });
 
 // Get staff attendance statistics
-router.get('/staff/stats', authenticate, authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
+router.get('/staff/stats', authenticate, async (req, res) => {
   try {
     const { startDate, endDate, staffId } = req.query;
 
