@@ -3,6 +3,7 @@ const Joi = require('joi');
 const { Op, sequelize } = require('sequelize');
 const { Event, User, School, Class } = require('../models');
 const { authenticate, authorize, schoolContext } = require('../middleware/auth');
+const { enforceTenancy } = require('../middleware/tenancy');
 
 const router = express.Router();
 
@@ -17,7 +18,8 @@ const createEventSchema = Joi.object({
   startDate: Joi.date().optional(),
   endDate: Joi.date().optional(),
   location: Joi.string().optional(),
-  sendNotification: Joi.boolean().default(true)
+  sendNotification: Joi.boolean().default(true),
+  isPublished: Joi.boolean().default(true)
 });
 
 const updateEventSchema = Joi.object({
@@ -143,7 +145,7 @@ router.get('/upcoming', authenticate, async (req, res) => {
 });
 
 // Get all events for a school
-router.get('/', authenticate, async (req, res) => {
+router.get('/', authenticate, enforceTenancy, async (req, res) => {
   try {
     const { page = 1, limit = 10, type, priority, classId, published } = req.query;
     const offset = (page - 1) * limit;
@@ -171,7 +173,7 @@ router.get('/', authenticate, async (req, res) => {
     }
 
     // Filter by published status
-    if (published !== undefined) {
+    if (published !== undefined && published !== '') {
       whereClause.isPublished = published === 'true';
     }
 

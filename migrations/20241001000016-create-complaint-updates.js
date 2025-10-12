@@ -29,7 +29,7 @@ module.exports = {
         onDelete: 'CASCADE'
       },
       updateType: {
-        type: Sequelize.ENUM('comment', 'status_change', 'assignment', 'resolution', 'attachment'),
+        type: Sequelize.ENUM('comment', 'status_change', 'assignment', 'resolution'),
         allowNull: false,
         defaultValue: 'comment'
       },
@@ -45,11 +45,7 @@ module.exports = {
         type: Sequelize.STRING,
         allowNull: true
       },
-      attachments: {
-        type: Sequelize.ARRAY(Sequelize.JSONB),
-        allowNull: true,
-        defaultValue: []
-      },
+
       isInternal: {
         type: Sequelize.BOOLEAN,
         allowNull: false,

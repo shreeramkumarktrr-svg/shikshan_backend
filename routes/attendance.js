@@ -1,8 +1,9 @@
 const express = require('express');
 const Joi = require('joi');
-const { Op, sequelize } = require('sequelize');
-const { Attendance, User, Class, Student, StaffAttendance } = require('../models');
+const { Op } = require('sequelize');
+const { Attendance, User, Class, Student, StaffAttendance, sequelize } = require('../models');
 const { authenticate, authorize, schoolContext } = require('../middleware/auth');
+const { enforceTenancy } = require('../middleware/tenancy');
 
 const router = express.Router();
 
@@ -454,7 +455,15 @@ router.get('/staff/stats', authenticate, authorize('super_admin', 'school_admin'
     });
   } catch (error) {
     console.error('Get staff attendance stats error:', error);
-    res.status(500).json({ error: 'Failed to fetch staff attendance statistics' });
+    console.error('Error details:', {
+      message: error.message,
+      stack: error.stack,
+      query: req.query
+    });
+    res.status(500).json({ 
+      error: 'Failed to fetch staff attendance statistics',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
@@ -504,6 +513,142 @@ router.put('/staff/:id', authenticate, authorize('super_admin', 'school_admin', 
   } catch (error) {
     console.error('Update staff attendance error:', error);
     res.status(500).json({ error: 'Failed to update staff attendance' });
+  }
+});
+
+// Get attendance report (for dashboards)
+router.get('/report', authenticate, enforceTenancy, async (req, res) => {
+  try {
+    const { startDate, endDate, classId, teacherId } = req.query;
+    
+    // Default to today if no dates provided
+    const today = new Date().toISOString().split('T')[0];
+    const reportStartDate = startDate || today;
+    const reportEndDate = endDate || today;
+
+    // Build where clause for attendance (no schoolId in attendance table)
+    const whereClause = {
+      date: {
+        [Op.between]: [reportStartDate, reportEndDate]
+      }
+    };
+
+    if (classId) {
+      whereClause.classId = classId;
+    }
+
+    // Build include clause with school filtering through Class
+    const includeClause = [
+      {
+        model: User,
+        as: 'student',
+        attributes: ['id', 'firstName', 'lastName']
+      },
+      {
+        model: Class,
+        as: 'class',
+        attributes: ['id', 'name', 'grade', 'section'],
+        where: { schoolId: req.user.schoolId }, // Filter by school through class
+        required: true // Inner join to ensure only records from user's school
+      }
+    ];
+
+    if (teacherId) {
+      // Get classes taught by this teacher
+      const teacherClasses = await Class.findAll({
+        where: { 
+          schoolId: req.user.schoolId,
+          classTeacherId: teacherId 
+        },
+        attributes: ['id']
+      });
+      
+      if (teacherClasses.length > 0) {
+        whereClause.classId = {
+          [Op.in]: teacherClasses.map(cls => cls.id)
+        };
+      } else {
+        // Teacher has no classes, return empty result
+        return res.json({
+          todayStats: { present: 0, total: 0 },
+          weeklyStats: [],
+          classStats: []
+        });
+      }
+    }
+
+    // Get attendance records
+    const attendanceRecords = await Attendance.findAll({
+      where: whereClause,
+      include: includeClause
+    });
+
+    // Calculate today's stats
+    const todayRecords = attendanceRecords.filter(record => 
+      record.date === today
+    );
+    
+    const todayStats = {
+      present: todayRecords.filter(record => record.status === 'present').length,
+      total: todayRecords.length
+    };
+
+    // Calculate weekly stats (last 7 days)
+    const weeklyStats = [];
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date();
+      date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
+      
+      const dayRecords = attendanceRecords.filter(record => 
+        record.date === dateStr
+      );
+      
+      weeklyStats.push({
+        date: dateStr,
+        present: dayRecords.filter(record => record.status === 'present').length,
+        total: dayRecords.length,
+        percentage: dayRecords.length > 0 
+          ? Math.round((dayRecords.filter(record => record.status === 'present').length / dayRecords.length) * 100)
+          : 0
+      });
+    }
+
+    // Calculate class-wise stats
+    const classStats = {};
+    attendanceRecords.forEach(record => {
+      if (!classStats[record.classId]) {
+        classStats[record.classId] = {
+          className: record.class?.name || 'Unknown',
+          present: 0,
+          total: 0
+        };
+      }
+      
+      classStats[record.classId].total++;
+      if (record.status === 'present') {
+        classStats[record.classId].present++;
+      }
+    });
+
+    const classStatsArray = Object.values(classStats).map(stat => ({
+      ...stat,
+      percentage: stat.total > 0 ? Math.round((stat.present / stat.total) * 100) : 0
+    }));
+
+    res.json({
+      todayStats,
+      weeklyStats,
+      classStats: classStatsArray,
+      dateRange: {
+        startDate: reportStartDate,
+        endDate: reportEndDate
+      }
+    });
+
+  } catch (error) {
+    console.error('Get attendance report error:', error);
+    res.status(500).json({ error: 'Failed to fetch attendance report' });
   }
 });
 

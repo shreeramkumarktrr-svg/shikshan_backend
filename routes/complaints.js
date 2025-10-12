@@ -5,6 +5,71 @@ const { authenticate: auth } = require('../middleware/auth');
 
 const router = express.Router();
 
+// Get complaint statistics
+router.get('/stats', auth, async (req, res) => {
+  try {
+    const where = {};
+
+    // Apply school filter based on user role
+    if (req.user.role !== 'super_admin') {
+      where.schoolId = req.user.schoolId;
+    }
+
+    // Apply role-based filters
+    if (req.user.role === 'student') {
+      where.raisedBy = req.user.id;
+    } else if (req.user.role === 'teacher') {
+      where.assignedTo = req.user.id;
+    }
+
+    const [
+      totalComplaints,
+      openComplaints,
+      inProgressComplaints,
+      resolvedComplaints,
+      urgentComplaints
+    ] = await Promise.all([
+      Complaint.count({ where }),
+      Complaint.count({ where: { ...where, status: 'open' } }),
+      Complaint.count({ where: { ...where, status: 'in_progress' } }),
+      Complaint.count({ where: { ...where, status: 'resolved' } }),
+      Complaint.count({ where: { ...where, priority: 'urgent' } })
+    ]);
+
+    // Category breakdown
+    const categoryStats = await Complaint.findAll({
+      where,
+      attributes: [
+        'category',
+        [Complaint.sequelize.fn('COUNT', Complaint.sequelize.col('id')), 'count']
+      ],
+      group: ['category']
+    });
+
+    res.json({
+      success: true,
+      data: {
+        totalComplaints,
+        pendingComplaints: openComplaints + inProgressComplaints,
+        resolvedComplaints,
+        openComplaints,
+        inProgressComplaints,
+        urgentComplaints,
+        categoryStats: categoryStats.map(stat => ({
+          category: stat.category,
+          count: parseInt(stat.dataValues.count)
+        }))
+      }
+    });
+  } catch (error) {
+    console.error('Get complaint stats error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch complaint statistics'
+    });
+  }
+});
+
 // Get all complaints with filters
 router.get('/', auth, async (req, res) => {
   try {
@@ -680,69 +745,6 @@ router.get('/my', auth, async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Failed to fetch complaints'
-    });
-  }
-});
-
-// Get complaint statistics
-router.get('/stats', auth, async (req, res) => {
-  try {
-    const where = {};
-
-    // Apply school filter based on user role
-    if (req.user.role !== 'super_admin') {
-      where.schoolId = req.user.schoolId;
-    }
-
-    // Apply role-based filters
-    if (req.user.role === 'student') {
-      where.raisedBy = req.user.id;
-    } else if (req.user.role === 'teacher') {
-      where.assignedTo = req.user.id;
-    }
-
-    const [
-      totalComplaints,
-      openComplaints,
-      inProgressComplaints,
-      resolvedComplaints,
-      urgentComplaints
-    ] = await Promise.all([
-      Complaint.count({ where }),
-      Complaint.count({ where: { ...where, status: 'open' } }),
-      Complaint.count({ where: { ...where, status: 'in_progress' } }),
-      Complaint.count({ where: { ...where, status: 'resolved' } }),
-      Complaint.count({ where: { ...where, priority: 'urgent' } })
-    ]);
-
-    // Category breakdown
-    const categoryStats = await Complaint.findAll({
-      where,
-      attributes: [
-        'category',
-        [Complaint.sequelize.fn('COUNT', Complaint.sequelize.col('id')), 'count']
-      ],
-      group: ['category']
-    });
-
-    res.json({
-      success: true,
-      totalComplaints,
-      pendingComplaints: openComplaints + inProgressComplaints,
-      resolvedComplaints,
-      openComplaints,
-      inProgressComplaints,
-      urgentComplaints,
-      categoryStats: categoryStats.map(stat => ({
-        category: stat.category,
-        count: parseInt(stat.dataValues.count)
-      }))
-    });
-  } catch (error) {
-    console.error('Get complaint stats error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to fetch complaint statistics'
     });
   }
 });

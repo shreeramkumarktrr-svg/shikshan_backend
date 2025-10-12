@@ -4,6 +4,7 @@ const { Op } = require('sequelize');
 const { School, User, Subscription, sequelize } = require('../models');
 const { authenticate, authorize, schoolContext } = require('../middleware/auth');
 const { getSchoolFeatures } = require('../middleware/featureAccess');
+const { enforceTenancy, enforceSchoolLimits, addTenantContext } = require('../middleware/tenancy');
 
 const router = express.Router();
 
@@ -205,7 +206,8 @@ router.get('/:id', authenticate, schoolContext, async (req, res) => {
 router.put('/:id', authenticate, schoolContext, authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
   try {
     const { error, value } = updateSchoolSchema.validate(req.body);
-    if (error) {return res.status(400).json({ 
+    if (error) {
+return res.status(400).json({ 
         error: 'Validation failed', 
         details: error.details.map(d => d.message),
         receivedData: req.body
@@ -326,7 +328,7 @@ router.delete('/:id', authenticate, authorize('super_admin'), async (req, res) =
 // Duplicate route removed - using the one with proper middleware below
 
 // Get school statistics
-router.get('/:id/stats', authenticate, schoolContext, async (req, res) => {
+router.get('/:id/stats', authenticate, enforceTenancy, schoolContext, async (req, res) => {
   try {
     const school = await School.findByPk(req.params.id);
     if (!school) {
@@ -414,7 +416,7 @@ router.get('/:id/stats', authenticate, schoolContext, async (req, res) => {
 });
 
 // Get school features and subscription details
-router.get('/:id/features', authenticate, schoolContext, async (req, res) => {
+router.get('/:id/features', authenticate, enforceTenancy, schoolContext, async (req, res) => {
   try {
     const features = await getSchoolFeatures(req.params.id);
     res.json({ features });

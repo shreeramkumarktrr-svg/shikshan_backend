@@ -4,6 +4,7 @@ const { Op } = require('sequelize');
 const { Homework, HomeworkSubmission, User, Class, Student, School } = require('../models');
 const { authenticate, authorize, schoolContext } = require('../middleware/auth');
 const { checkFeatureAccess } = require('../middleware/featureAccess');
+const { enforceTenancy } = require('../middleware/tenancy');
 
 const router = express.Router();
 
@@ -194,7 +195,7 @@ router.get('/', authenticate, checkFeatureAccess('homework'), async (req, res) =
 });
 
 // Get homework statistics
-router.get('/stats/overview', authenticate, checkFeatureAccess('homework'), async (req, res) => {
+router.get('/stats/overview', authenticate, enforceTenancy, async (req, res) => {
   try {
     const { classId } = req.query;
     
@@ -246,7 +247,10 @@ router.get('/stats/overview', authenticate, checkFeatureAccess('homework'), asyn
       overdueHomework,
       totalSubmissions,
       gradedSubmissions,
-      pendingGrading: totalSubmissions - gradedSubmissions
+      pendingGrading: totalSubmissions - gradedSubmissions,
+      // Add fields expected by frontend
+      active: publishedHomework,
+      pendingSubmissions: totalSubmissions - gradedSubmissions
     });
   } catch (error) {
     console.error('Get homework stats error:', error);

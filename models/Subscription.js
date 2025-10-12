@@ -18,7 +18,7 @@ module.exports = (sequelize, DataTypes) => {
       allowNull: true
     },
     planType: {
-      type: DataTypes.ENUM('basic', 'standard', 'premium'),
+      type: DataTypes.ENUM('basic', 'standard', 'premium', 'custom'),
       allowNull: false
     },
     price: {

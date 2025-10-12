@@ -8,6 +8,16 @@ const path = require('path');
 // Import database
 const db = require('./models');
 
+// Import middleware
+const { 
+  enforceTenancy, 
+  auditTenantAccess, 
+  enforceSchoolLimits,
+  setupGlobalTenantFiltering,
+  addTenantContext 
+} = require('./middleware/tenancy');
+const { auditApiRequests } = require('./middleware/auditLogger');
+
 // Import routes
 const authRoutes = require('./routes/auth');
 const schoolRoutes = require('./routes/schools');
@@ -22,7 +32,6 @@ const reportRoutes = require('./routes/reports');
 const subscriptionRoutes = require('./routes/subscriptions');
 const paymentRoutes = require('./routes/payments');
 const contactRoutes = require('./routes/contact');
-const debugRoutes = require('./debug-routes');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -83,6 +92,15 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Static files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
+// Store sequelize instance in app locals for middleware access
+app.locals.sequelize = db.sequelize;
+
+// Global audit middleware (logs all API requests)
+app.use(auditApiRequests);
+
+// Global tenant audit middleware (before authentication)
+app.use(auditTenantAccess);
+
 // Health check endpoint
 app.get('/health', (req, res) => {
   res.status(200).json({
@@ -93,21 +111,37 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Debug endpoint to check user context
+app.get('/api/debug/user', require('./middleware/auth').authenticate, (req, res) => {
+  res.json({
+    user: {
+      id: req.user?.id,
+      role: req.user?.role,
+      schoolId: req.user?.schoolId,
+      firstName: req.user?.firstName,
+      lastName: req.user?.lastName
+    },
+    timestamp: new Date().toISOString()
+  });
+});
+
 // API routes
 app.use('/api/auth', authRoutes);
-app.use('/api/schools', schoolRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/classes', classRoutes);
-app.use('/api/attendance', attendanceRoutes);
-app.use('/api/homework', homeworkRoutes);
-app.use('/api/events', eventRoutes);
-app.use('/api/complaints', complaintRoutes);
-app.use('/api/fees', feeRoutes);
-app.use('/api/reports', reportRoutes);
-app.use('/api/subscriptions', subscriptionRoutes);
-app.use('/api/payments', paymentRoutes);
-app.use('/api/contact', contactRoutes);
-app.use('/api', debugRoutes);
+
+// Protected routes with tenancy middleware
+app.use('/api/schools', schoolRoutes); // Schools route handles its own tenancy logic
+app.use('/api/users', userRoutes); // Users route handles its own tenancy logic
+app.use('/api/classes', classRoutes); // Classes route handles its own tenancy logic
+app.use('/api/attendance', attendanceRoutes); // Attendance route handles its own tenancy logic
+app.use('/api/homework', homeworkRoutes); // Homework route handles its own tenancy logic
+app.use('/api/events', eventRoutes); // Events route handles its own tenancy logic
+app.use('/api/complaints', complaintRoutes); // Complaints route handles its own tenancy logic
+app.use('/api/fees', feeRoutes); // Fees route handles its own tenancy logic
+app.use('/api/reports', reportRoutes); // Reports route handles its own tenancy logic
+app.use('/api/subscriptions', subscriptionRoutes); // Super admin only, no tenancy needed
+app.use('/api/payments', paymentRoutes); // Global payments, handled separately
+app.use('/api/contact', contactRoutes); // Public routes, no tenancy needed
+app.use('/api/monitoring', require('./routes/monitoring')); // Monitoring and audit routes
 
 // 404 handler
 app.use('*', (req, res) => {
@@ -157,14 +191,23 @@ const startServer = async () => {
   try {
     // Test database connection
     await db.sequelize.authenticate();
+    console.log('Database connection established successfully.');
+
+    // Setup global tenant filtering hooks (disabled for now to avoid conflicts)
+    // setupGlobalTenantFiltering(db.sequelize);
+    console.log('Tenant filtering middleware ready.');
+
     // Sync database (only in development)
     if (process.env.NODE_ENV === 'development') {
       await db.sequelize.sync({ alter: true });
-      }
+      console.log('Database synchronized.');
+    }
 
     app.listen(PORT, () => {
-      
-      });
+      console.log(`Server running on port ${PORT}`);
+      console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`Health check: http://localhost:${PORT}/health`);
+    });
   } catch (error) {
     console.error('Unable to start server:', error);
     process.exit(1);

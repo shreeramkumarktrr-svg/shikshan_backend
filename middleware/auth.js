@@ -13,7 +13,7 @@ const verifyToken = (token) => {
   return jwt.verify(token, process.env.JWT_SECRET);
 };
 
-// Authentication middleware
+// Authentication middleware with tenancy support
 const authenticate = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -30,7 +30,7 @@ const authenticate = async (req, res, next) => {
         {
           model: School,
           as: 'school',
-          attributes: ['id', 'name', 'subscriptionStatus', 'isActive']
+          attributes: ['id', 'name', 'subscriptionStatus', 'isActive', 'maxStudents', 'maxTeachers']
         }
       ]
     });
@@ -44,6 +44,30 @@ const authenticate = async (req, res, next) => {
       return res.status(403).json({ error: 'School account is inactive' });
     }
     
+    // Set database-level school context for Row Level Security (if functions exist)
+    try {
+      if (user.schoolId && user.role !== 'super_admin') {
+        await req.app.locals.sequelize.query(
+          'SELECT set_school_context($1, $2)',
+          {
+            bind: [user.schoolId, user.role],
+            type: req.app.locals.sequelize.QueryTypes.SELECT
+          }
+        );
+      } else if (user.role === 'super_admin') {
+        await req.app.locals.sequelize.query(
+          'SELECT set_school_context(NULL, $1)',
+          {
+            bind: [user.role],
+            type: req.app.locals.sequelize.QueryTypes.SELECT
+          }
+        );
+      }
+    } catch (error) {
+      // RLS functions may not exist yet, continue without them
+      console.log('RLS functions not available yet, skipping context setting');
+    }
+    
     req.user = user;
     req.schoolId = user.schoolId;
     next();
@@ -54,6 +78,7 @@ const authenticate = async (req, res, next) => {
     if (error.name === 'TokenExpiredError') {
       return res.status(401).json({ error: 'Token expired' });
     }
+    console.error('Authentication error:', error);
     return res.status(500).json({ error: 'Authentication failed' });
   }
 };

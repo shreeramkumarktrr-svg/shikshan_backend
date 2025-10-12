@@ -3,6 +3,7 @@ const Joi = require('joi');
 const { Op } = require('sequelize');
 const { sequelize, Class, User, School, Student } = require('../models');
 const { authenticate, authorize, schoolContext } = require('../middleware/auth');
+const { enforceTenancy } = require('../middleware/tenancy');
 
 const router = express.Router();
 
@@ -51,7 +52,7 @@ const hasAccess = (user, cls) =>
 /* ------------------------ Routes ------------------------ */
 
 // GET all classes
-router.get('/', authenticate, schoolContext, async (req, res) => {
+router.get('/', authenticate, enforceTenancy, schoolContext, async (req, res) => {
   try {
     const { page = 1, limit = 10, grade, search, active } = req.query;
     const pageNum = parseInt(page, 10) || 1;
@@ -63,7 +64,7 @@ router.get('/', authenticate, schoolContext, async (req, res) => {
     };
 
     if (grade) whereClause.grade = grade;
-    if (active !== undefined) whereClause.isActive = active === 'true';
+    if (active !== undefined && active !== '') whereClause.isActive = active === 'true';
 
     if (search) {
       whereClause[Op.or] = [

@@ -3,6 +3,7 @@ const Joi = require('joi');
 const { Op } = require('sequelize');
 const { User, School, Student, Parent, Teacher, Class, sequelize } = require('../models');
 const { authenticate, authorize, schoolContext } = require('../middleware/auth');
+const { enforceTenancy, enforceSchoolLimits } = require('../middleware/tenancy');
 
 const router = express.Router();
 
@@ -10,42 +11,57 @@ const router = express.Router();
 const createUserSchema = Joi.object({
   firstName: Joi.string().min(2).max(50).required(),
   lastName: Joi.string().min(2).max(50).required(),
-  email: Joi.string().email().allow('').optional(),
-  phone: Joi.string().min(10).max(15).required(),
-  password: Joi.string().min(6).allow('').optional(),
+  email: Joi.string().email().allow('', null).optional(),
+  phone: Joi.string().pattern(/^\d{10,15}$/).required(),
+  password: Joi.string().min(6).optional(),
   role: Joi.string().valid('school_admin', 'principal', 'teacher', 'student', 'parent', 'finance_officer', 'support_staff').required(),
-  dateOfBirth: Joi.date().allow('').optional(),
-  gender: Joi.string().valid('male', 'female', 'other').allow('').optional(),
-  address: Joi.string().allow('').optional(),
-  employeeId: Joi.string().allow('').optional(),
+  dateOfBirth: Joi.date().allow('', null).optional(),
+  gender: Joi.string().valid('male', 'female', 'other').allow('', null).optional(),
+  address: Joi.string().allow('', null).optional(),
+  employeeId: Joi.string().allow('', null).optional(),
   subjects: Joi.array().items(Joi.string()).optional(),
   // Student specific fields
   classId: Joi.string().uuid().allow('', null).optional(),
-  rollNumber: Joi.string().allow('').optional(),
-  parentName: Joi.string().allow('').optional(),
-  parentContact: Joi.string().min(10).max(15).allow('').optional(),
-  parentEmail: Joi.string().email().allow('').optional(),
+  rollNumber: Joi.string().allow('', null).optional(),
+  parentName: Joi.string().allow('', null).optional(),
+  parentContact: Joi.string().pattern(/^\d{10,15}$/).allow('', null).optional(),
+  parentEmail: Joi.string().email().allow('', null).optional(),
   // Teacher specific fields
-  classTeacher: Joi.boolean().optional()
+  classTeacher: Joi.boolean().optional(),
+  // Status field
+  isActive: Joi.boolean().optional().default(true),
+  // Super admin can specify schoolId
+  schoolId: Joi.string().uuid().optional()
 });
 
 const updateUserSchema = Joi.object({
   firstName: Joi.string().min(2).max(50).optional(),
   lastName: Joi.string().min(2).max(50).optional(),
-  email: Joi.string().email().optional(),
-  phone: Joi.string().min(10).max(15).optional(),
-  dateOfBirth: Joi.date().optional(),
-  gender: Joi.string().valid('male', 'female', 'other').optional(),
-  address: Joi.string().optional(),
-  employeeId: Joi.string().optional(),
+  email: Joi.string().email().allow('', null).optional(),
+  phone: Joi.string().pattern(/^\d{10,15}$/).allow('', null).optional(),
+  password: Joi.string().min(6).optional(), // Allow but ignore during update (for form compatibility)
+  role: Joi.string().valid('school_admin', 'principal', 'teacher', 'student', 'parent', 'finance_officer', 'support_staff').optional(), // Allow but restrict who can change
+  dateOfBirth: Joi.date().allow('', null).optional(),
+  gender: Joi.string().valid('male', 'female', 'other').allow('', null).optional(),
+  address: Joi.string().allow('', null).optional(),
+  employeeId: Joi.string().allow('', null).optional(),
   subjects: Joi.array().items(Joi.string()).optional(),
+  // Student specific fields
+  classId: Joi.string().uuid().allow('', null).optional(),
+  rollNumber: Joi.string().allow('', null).optional(),
+  parentName: Joi.string().allow('', null).optional(),
+  parentContact: Joi.string().pattern(/^\d{10,15}$/).allow('', null).optional(),
+  parentEmail: Joi.string().email().allow('', null).optional(),
+  // Teacher specific fields
+  classTeacher: Joi.boolean().optional(),
+  // Status field
   isActive: Joi.boolean().optional()
 });
 
 // Get all users for a school
-router.get('/', authenticate, authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
+router.get('/', authenticate, enforceTenancy, authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
   try {
-    const { page = 1, limit = 10, role, search, active, schoolId } = req.query;
+    const { page = 1, limit = 10, role, search, active, hasClass, schoolId } = req.query;
     const offset = (page - 1) * limit;
 
     // Determine school ID - super admin can query any school, others use their own
@@ -74,7 +90,7 @@ router.get('/', authenticate, authorize('super_admin', 'school_admin', 'principa
     }
 
     // Filter by active status
-    if (active !== undefined) {
+    if (active !== undefined && active !== '') {
       whereClause.isActive = active === 'true';
     }
 
@@ -88,7 +104,23 @@ router.get('/', authenticate, authorize('super_admin', 'school_admin', 'principa
       ];
     }
 
-    
+    // Class assignment filter (for teachers)
+    if (hasClass !== undefined && hasClass !== '' && role === 'teacher') {
+      const { Class } = require('../models');
+      if (hasClass === 'true') {
+        // Teachers with classes - user ID should exist in classes as classTeacherId
+        whereClause.id = {
+          [Op.in]: sequelize.literal(`(SELECT "classTeacherId" FROM "Classes" WHERE "classTeacherId" IS NOT NULL AND "schoolId" = '${targetSchoolId}')`)
+        };
+      } else if (hasClass === 'false') {
+        // Teachers without classes - user ID should NOT exist in classes as classTeacherId
+        whereClause.id = {
+          [Op.notIn]: sequelize.literal(`(SELECT "classTeacherId" FROM "Classes" WHERE "classTeacherId" IS NOT NULL AND "schoolId" = '${targetSchoolId}')`)
+        };
+      }
+    }
+
+
     const { count, rows: users } = await User.findAndCountAll({
       where: whereClause,
       limit: parseInt(limit),
@@ -124,10 +156,6 @@ router.get('/', authenticate, authorize('super_admin', 'school_admin', 'principa
           required: false
         }
       ]
-    });
-
-    ,
-      userSchoolIds: users.map(u => u.schoolId)
     });
 
     res.json({
@@ -209,12 +237,61 @@ router.post('/', authenticate, authorize('super_admin', 'school_admin', 'princip
     }
 
     // Determine school ID - super admin can specify schoolId, others use their own
-    const targetSchoolId = req.user.role === 'super_admin' && req.query.schoolId
-      ? req.query.schoolId
+    const targetSchoolId = req.user.role === 'super_admin'
+      ? (value.schoolId || req.query.schoolId || req.user.schoolId)
       : req.user.schoolId;
 
     if (!targetSchoolId) {
       return res.status(400).json({ error: 'School ID is required' });
+    }
+
+    // Check school limits for non-super admin users
+    if (req.user.role !== 'super_admin') {
+      const school = req.user.school;
+      if (!school) {
+        return res.status(400).json({ error: 'School information not found' });
+      }
+
+      // Check subscription status
+      if (school.subscriptionStatus !== 'active' && school.subscriptionStatus !== 'trial') {
+        return res.status(403).json({
+          error: 'School subscription is not active',
+          code: 'SUBSCRIPTION_INACTIVE',
+          subscriptionStatus: school.subscriptionStatus
+        });
+      }
+
+      // Check student limit
+      if (value.role === 'student') {
+        const studentCount = await User.count({
+          where: { schoolId: targetSchoolId, role: 'student', isActive: true }
+        });
+
+        if (studentCount >= school.maxStudents) {
+          return res.status(403).json({
+            error: `Student limit reached. Maximum allowed: ${school.maxStudents}`,
+            code: 'STUDENT_LIMIT_EXCEEDED',
+            currentCount: studentCount,
+            maxAllowed: school.maxStudents
+          });
+        }
+      }
+
+      // Check teacher limit
+      if (value.role === 'teacher') {
+        const teacherCount = await User.count({
+          where: { schoolId: targetSchoolId, role: 'teacher', isActive: true }
+        });
+
+        if (teacherCount >= school.maxTeachers) {
+          return res.status(403).json({
+            error: `Teacher limit reached. Maximum allowed: ${school.maxTeachers}`,
+            code: 'TEACHER_LIMIT_EXCEEDED',
+            currentCount: teacherCount,
+            maxAllowed: school.maxTeachers
+          });
+        }
+      }
     }
 
     // Check if user already exists
@@ -232,16 +309,32 @@ router.post('/', authenticate, authorize('super_admin', 'school_admin', 'princip
       return res.status(409).json({ error: 'User with this email or phone already exists' });
     }
 
+    // Validate and generate password
+    let password = value.password;
+    if (password && password.length < 6) {
+      return res.status(400).json({
+        error: 'Validation failed',
+        details: ['Password must be at least 6 characters long']
+      });
+    }
+
     // Generate default password if not provided
-    const password = value.password || `${value.firstName.toLowerCase()}123`;
+    if (!password) {
+      password = `${value.firstName.toLowerCase()}123`;
+    }
 
     // Clean the data - convert empty strings to null for optional fields
     const cleanedValue = { ...value };
-    if (cleanedValue.classId === '') cleanedValue.classId = null;
-    if (cleanedValue.email === '') cleanedValue.email = null;
-    if (cleanedValue.employeeId === '') cleanedValue.employeeId = null;
-    if (cleanedValue.dateOfBirth === '') cleanedValue.dateOfBirth = null;
-    if (cleanedValue.address === '') cleanedValue.address = null;
+    const fieldsToClean = [
+      'classId', 'email', 'employeeId', 'dateOfBirth', 'address',
+      'rollNumber', 'parentName', 'parentContact', 'parentEmail', 'gender'
+    ];
+
+    fieldsToClean.forEach(field => {
+      if (cleanedValue[field] === '') {
+        cleanedValue[field] = null;
+      }
+    });
 
     const user = await User.create({
       ...cleanedValue,
@@ -363,9 +456,73 @@ router.put('/:id', authenticate, async (req, res) => {
       return res.status(403).json({ error: 'Insufficient permissions' });
     }
 
-    await user.update(value);
+    // Remove password from update data (password updates should use separate endpoint)
+    const updateData = { ...value };
+    delete updateData.password;
 
-    // Fetch updated user without password
+    // Handle role changes with proper permissions
+    if (updateData.role && updateData.role !== user.role) {
+      // Only super admin and school admin can change roles
+      if (!['super_admin', 'school_admin'].includes(req.user.role)) {
+        return res.status(403).json({ error: 'Insufficient permissions to change user role' });
+      }
+      
+      // Super admin can change any role, school admin has restrictions
+      if (req.user.role === 'school_admin') {
+        // School admin cannot create other school admins or super admins
+        if (['super_admin', 'school_admin'].includes(updateData.role)) {
+          return res.status(403).json({ error: 'Cannot assign admin roles' });
+        }
+      }
+    }
+
+    // Extract student-specific fields before updating user
+    const studentFields = {
+      classId: value.classId,
+      rollNumber: value.rollNumber
+    };
+
+    // Remove student-specific fields from user update data
+    delete updateData.classId;
+    delete updateData.rollNumber;
+    delete updateData.parentName;
+    delete updateData.parentContact;
+    delete updateData.parentEmail;
+
+    await user.update(updateData);
+
+    // Handle student-specific updates
+    if (user.role === 'student') {
+      // Find or create student profile
+      let studentProfile = await Student.findOne({ where: { userId: user.id } });
+      
+      if (studentProfile) {
+        // Update existing student profile
+        const studentUpdateData = {};
+        if (studentFields.classId !== undefined) {
+          studentUpdateData.classId = studentFields.classId === '' ? null : studentFields.classId;
+        }
+        if (studentFields.rollNumber !== undefined) {
+          studentUpdateData.rollNumber = studentFields.rollNumber === '' ? null : studentFields.rollNumber;
+        }
+        
+        if (Object.keys(studentUpdateData).length > 0) {
+          await studentProfile.update(studentUpdateData);
+        }
+      } else if (studentFields.classId || studentFields.rollNumber) {
+        // Create student profile if it doesn't exist and we have student data
+        await Student.create({
+          userId: user.id,
+          classId: studentFields.classId === '' ? null : studentFields.classId,
+          rollNumber: studentFields.rollNumber || `ROLL${Date.now()}${Math.floor(Math.random() * 1000)}`,
+          admissionNumber: `ADM${Date.now()}${Math.floor(Math.random() * 1000)}`,
+          admissionDate: new Date(),
+          isActive: true
+        });
+      }
+    }
+
+    // Fetch updated user without password, including student profile
     const updatedUser = await User.findByPk(user.id, {
       attributes: { exclude: ['passwordHash'] },
       include: [
@@ -373,6 +530,17 @@ router.put('/:id', authenticate, async (req, res) => {
           model: School,
           as: 'school',
           attributes: ['id', 'name']
+        },
+        {
+          model: Student,
+          as: 'studentProfile',
+          include: [
+            {
+              model: Class,
+              as: 'class',
+              attributes: ['id', 'name', 'grade', 'section']
+            }
+          ]
         }
       ]
     });
@@ -383,7 +551,15 @@ router.put('/:id', authenticate, async (req, res) => {
     });
   } catch (error) {
     console.error('Update user error:', error);
-    res.status(500).json({ error: 'Failed to update user' });
+    console.error('Error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
+    res.status(500).json({ 
+      error: 'Failed to update user',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
@@ -457,7 +633,7 @@ router.put('/:id/password', authenticate, async (req, res) => {
 });
 
 // Get user statistics
-router.get('/stats/summary', authenticate, authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
+router.get('/stats/summary', authenticate, enforceTenancy, authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
   try {
     // Determine school ID - super admin can query any school, others use their own
     const schoolId = req.user.role === 'super_admin' && req.query.schoolId
@@ -478,7 +654,7 @@ router.get('/stats/summary', authenticate, authorize('super_admin', 'school_admi
     // Calculate stats manually
     const totalUsers = allUsers.filter(user => user.isActive).length;
     const inactiveUsers = allUsers.filter(user => !user.isActive).length;
-    
+
     const usersByRole = {};
     allUsers.forEach(user => {
       if (user.isActive) {
@@ -498,7 +674,7 @@ router.get('/stats/summary', authenticate, authorize('super_admin', 'school_admi
 });
 
 // Alias for stats endpoint (for compatibility)
-router.get('/stats', authenticate, authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
+router.get('/stats', authenticate, enforceTenancy, authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
   try {
     // Determine school ID - super admin can query any school, others use their own
     const schoolId = req.user.role === 'super_admin' && req.query.schoolId
@@ -519,7 +695,7 @@ router.get('/stats', authenticate, authorize('super_admin', 'school_admin', 'pri
     // Calculate stats manually
     const totalUsers = allUsers.filter(user => user.isActive).length;
     const inactiveUsers = allUsers.filter(user => !user.isActive).length;
-    
+
     const usersByRole = {};
     allUsers.forEach(user => {
       if (user.isActive) {
@@ -712,18 +888,24 @@ router.patch('/:id/status', authenticate, authorize('super_admin', 'school_admin
 });
 
 // Get users by role
-router.get('/role/:role', authenticate, async (req, res) => {
+router.get('/role/:role', authenticate, enforceTenancy, async (req, res) => {
   try {
     const { role } = req.params;
-    const { active = 'true' } = req.query;
+    const { active } = req.query;
+
+    const whereClause = {
+      schoolId: req.user.schoolId,
+      role
+    };
+
+    // Filter by active status only if specified
+    if (active !== undefined) {
+      whereClause.isActive = active === 'true';
+    }
 
     const users = await User.findAll({
-      where: {
-        schoolId: req.user.schoolId,
-        role,
-        isActive: active === 'true'
-      },
-      attributes: ['id', 'firstName', 'lastName', 'email', 'phone'],
+      where: whereClause,
+      attributes: ['id', 'firstName', 'lastName', 'email', 'phone', 'isActive'],
       order: [['firstName', 'ASC']]
     });
 

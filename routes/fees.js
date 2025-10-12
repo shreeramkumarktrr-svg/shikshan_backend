@@ -1,9 +1,22 @@
 const express = require('express');
 const router = express.Router();
-const { Fee, StudentFee, Class, Student, User } = require('../models');
+const { Fee, StudentFee, Class, Student, User, Parent } = require('../models');
 const { authenticate } = require('../middleware/auth');
 const { checkFeatureAccess } = require('../middleware/featureAccess');
 const { Op } = require('sequelize');
+
+// Test endpoint to verify routes are working
+router.get('/test', (req, res) => {
+  res.json({ 
+    message: 'Fees routes are working!', 
+    timestamp: new Date().toISOString(),
+    availableEndpoints: [
+      'GET /api/fees',
+      'POST /api/fees/generate',
+      'GET /api/fees/stats/overview'
+    ]
+  });
+});
 
 // Get all fees for a school
 router.get('/', authenticate, checkFeatureAccess('fees'), async (req, res) => {
@@ -133,9 +146,13 @@ router.get('/student/:studentId', authenticate, checkFeatureAccess('fees'), asyn
       const student = await Student.findOne({
         where: { id: studentId },
         include: [{
-          model: User,
+          model: Parent,
           as: 'parents',
-          where: { id: req.user.id }
+          include: [{
+            model: User,
+            as: 'user',
+            where: { id: req.user.id }
+          }]
         }]
       });
       
@@ -241,6 +258,142 @@ router.get('/stats/overview', authenticate, checkFeatureAccess('fees'), async (r
   } catch (error) {
     console.error('Error fetching fee statistics:', error);
     res.status(500).json({ message: 'Error fetching fee statistics' });
+  }
+});
+
+// Generate fees for a class for a specific month
+router.post('/generate', authenticate, checkFeatureAccess('fees'), async (req, res) => {
+  try {
+    const { title, description, amount, classId, month, year } = req.body;
+
+    // Validate required fields
+    if (!title || !amount || !classId || !month || !year) {
+      return res.status(400).json({ 
+        message: 'Title, amount, class, month, and year are required' 
+      });
+    }
+
+    // Check if user has permission (principal or school admin only)
+    if (!['school_admin', 'principal'].includes(req.user.role)) {
+      return res.status(403).json({ message: 'Access denied. Only principals and school admins can generate fees.' });
+    }
+
+    // Verify class belongs to user's school
+    const classExists = await Class.findOne({
+      where: { 
+        id: classId,
+        schoolId: req.user.schoolId 
+      }
+    });
+
+    if (!classExists) {
+      return res.status(404).json({ message: 'Class not found' });
+    }
+
+    // Calculate due date (last day of the month)
+    const dueDate = new Date(year, month, 0); // Last day of the month
+
+    // Check if fee already exists for this class and month
+    const existingFee = await Fee.findOne({
+      where: {
+        classId,
+        schoolId: req.user.schoolId,
+        title: title,
+        dueDate: {
+          [Op.between]: [
+            new Date(year, month - 1, 1), // First day of month
+            new Date(year, month, 0)      // Last day of month
+          ]
+        }
+      }
+    });
+
+    if (existingFee) {
+      return res.status(400).json({ 
+        message: 'Fee already exists for this class and month' 
+      });
+    }
+
+    // Create fee
+    const fee = await Fee.create({
+      title,
+      description: description || `Monthly fee for ${new Date(year, month - 1).toLocaleString('default', { month: 'long', year: 'numeric' })}`,
+      amount,
+      dueDate,
+      classId,
+      schoolId: req.user.schoolId,
+      createdBy: req.user.id
+    });
+
+    // Get all active students in the class
+    const students = await Student.findAll({
+      where: { 
+        classId,
+        isActive: true 
+      }
+    });
+
+    if (students.length === 0) {
+      // Delete the fee if no students found
+      await fee.destroy();
+      return res.status(400).json({ 
+        message: 'No active students found in this class' 
+      });
+    }
+
+    // Create student fee records for all students in the class
+    const studentFeePromises = students.map(student => 
+      StudentFee.create({
+        feeId: fee.id,
+        studentId: student.id,
+        amount: amount
+      })
+    );
+
+    await Promise.all(studentFeePromises);
+
+    // Fetch the created fee with associations
+    const createdFee = await Fee.findByPk(fee.id, {
+      include: [
+        {
+          model: Class,
+          as: 'class',
+          attributes: ['id', 'name', 'section']
+        },
+        {
+          model: User,
+          as: 'creator',
+          attributes: ['id', 'firstName', 'lastName']
+        },
+        {
+          model: StudentFee,
+          as: 'studentFees',
+          include: [
+            {
+              model: Student,
+              as: 'student',
+              attributes: ['id', 'rollNumber', 'admissionNumber'],
+              include: [
+                {
+                  model: User,
+                  as: 'user',
+                  attributes: ['id', 'firstName', 'lastName']
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    });
+
+    res.status(201).json({
+      message: `Fee generated successfully for ${students.length} students`,
+      fee: createdFee,
+      studentsCount: students.length
+    });
+  } catch (error) {
+    console.error('Error generating fee:', error);
+    res.status(500).json({ message: 'Error generating fee' });
   }
 });
 
