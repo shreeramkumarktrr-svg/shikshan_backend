@@ -2,6 +2,8 @@ const express = require('express');
 const { Op } = require('sequelize');
 const { User, Complaint, ComplaintUpdate, School } = require('../models');
 const { authenticate: auth } = require('../middleware/auth');
+const { checkTeacherComplaintPermission } = require('../middleware/teacherPermissions');
+const { checkStudentPermission, checkComplaintAccess } = require('../middleware/studentPermissions');
 
 const router = express.Router();
 
@@ -71,7 +73,7 @@ router.get('/stats', auth, async (req, res) => {
 });
 
 // Get all complaints with filters
-router.get('/', auth, async (req, res) => {
+router.get('/', auth, checkStudentPermission('complaints', 'view'), async (req, res) => {
   try {
     const {
       page = 1,
@@ -177,7 +179,7 @@ router.get('/', auth, async (req, res) => {
 });
 
 // Get single complaint with updates
-router.get('/:id', auth, async (req, res) => {
+router.get('/:id', auth, checkStudentPermission('complaints', 'view'), async (req, res) => {
   try {
     const complaint = await Complaint.findByPk(req.params.id, {
       include: [
@@ -256,7 +258,7 @@ router.get('/:id', auth, async (req, res) => {
 });
 
 // Create new complaint
-router.post('/', auth, async (req, res) => {
+router.post('/', auth, checkTeacherComplaintPermission('create'), checkStudentPermission('complaints', 'create'), checkComplaintAccess('create'), async (req, res) => {
   try {
     const {
       title,
@@ -352,7 +354,7 @@ router.post('/', auth, async (req, res) => {
 });
 
 // Update complaint
-router.put('/:id', auth, async (req, res) => {
+router.put('/:id', auth, checkStudentPermission('complaints', 'update'), async (req, res) => {
   try {
     const { status, adminResponse, resolution, isInternal = false } = req.body;
 
@@ -750,7 +752,7 @@ router.get('/my', auth, async (req, res) => {
 });
 
 // Delete complaint
-router.delete('/:id', auth, async (req, res) => {
+router.delete('/:id', auth, checkTeacherComplaintPermission('delete'), async (req, res) => {
   try {
     const complaint = await Complaint.findByPk(req.params.id);
     if (!complaint) {

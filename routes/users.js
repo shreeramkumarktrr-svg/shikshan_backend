@@ -4,6 +4,7 @@ const { Op } = require('sequelize');
 const { User, School, Student, Parent, Teacher, Class, sequelize } = require('../models');
 const { authenticate, authorize, schoolContext } = require('../middleware/auth');
 const { enforceTenancy, enforceSchoolLimits } = require('../middleware/tenancy');
+const { checkTeacherReadOnlyPermission } = require('../middleware/teacherPermissions');
 
 const router = express.Router();
 
@@ -59,7 +60,7 @@ const updateUserSchema = Joi.object({
 });
 
 // Get all users for a school
-router.get('/', authenticate, enforceTenancy, authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
+router.get('/', authenticate, enforceTenancy, authorize('super_admin', 'school_admin', 'principal', 'teacher'), async (req, res) => {
   try {
     const { page = 1, limit = 10, role, search, active, hasClass, schoolId } = req.query;
     const offset = (page - 1) * limit;
@@ -226,7 +227,7 @@ router.get('/:id', authenticate, async (req, res) => {
 });
 
 // Create new user
-router.post('/', authenticate, authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
+router.post('/', authenticate, checkTeacherReadOnlyPermission('teachers'), authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
   try {
     const { error, value } = createUserSchema.validate(req.body);
     if (error) {
@@ -431,7 +432,7 @@ router.post('/', authenticate, authorize('super_admin', 'school_admin', 'princip
 });
 
 // Update user
-router.put('/:id', authenticate, async (req, res) => {
+router.put('/:id', authenticate, checkTeacherReadOnlyPermission('teachers'), async (req, res) => {
   try {
     const { error, value } = updateUserSchema.validate(req.body);
     if (error) {
@@ -564,7 +565,7 @@ router.put('/:id', authenticate, async (req, res) => {
 });
 
 // Delete user (deactivate)
-router.delete('/:id', authenticate, authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
+router.delete('/:id', authenticate, checkTeacherReadOnlyPermission('teachers'), authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
   try {
     const user = await User.findByPk(req.params.id);
     if (!user) {

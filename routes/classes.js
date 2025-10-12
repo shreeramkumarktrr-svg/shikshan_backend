@@ -4,6 +4,7 @@ const { Op } = require('sequelize');
 const { sequelize, Class, User, School, Student } = require('../models');
 const { authenticate, authorize, schoolContext } = require('../middleware/auth');
 const { enforceTenancy } = require('../middleware/tenancy');
+const { checkTeacherReadOnlyPermission } = require('../middleware/teacherPermissions');
 
 const router = express.Router();
 
@@ -128,7 +129,7 @@ router.get('/:id', authenticate, schoolContext, async (req, res) => {
 });
 
 // CREATE new class
-router.post('/', authenticate, authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
+router.post('/', authenticate, checkTeacherReadOnlyPermission('classes'), authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
   try {
     const { error, value } = createClassSchema.validate(req.body);
     if (error) {
@@ -182,7 +183,7 @@ router.post('/', authenticate, authorize('super_admin', 'school_admin', 'princip
 });
 
 // UPDATE class
-router.put('/:id', authenticate, authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
+router.put('/:id', authenticate, checkTeacherReadOnlyPermission('classes'), authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
   try {
     const { error, value } = updateClassSchema.validate(req.body);
     if (error) {
@@ -233,7 +234,7 @@ router.put('/:id', authenticate, authorize('super_admin', 'school_admin', 'princ
 });
 
 // DELETE class
-router.delete('/:id', authenticate, authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
+router.delete('/:id', authenticate, checkTeacherReadOnlyPermission('classes'), authorize('super_admin', 'school_admin', 'principal'), async (req, res) => {
   try {
     const cls = await Class.findByPk(req.params.id);
     if (!cls) return res.status(404).json({ error: 'Class not found' });

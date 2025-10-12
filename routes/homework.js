@@ -5,6 +5,7 @@ const { Homework, HomeworkSubmission, User, Class, Student, School } = require('
 const { authenticate, authorize, schoolContext } = require('../middleware/auth');
 const { checkFeatureAccess } = require('../middleware/featureAccess');
 const { enforceTenancy } = require('../middleware/tenancy');
+const { checkStudentPermission, filterStudentData, checkHomeworkAccess } = require('../middleware/studentPermissions');
 
 const router = express.Router();
 
@@ -67,7 +68,7 @@ const gradeHomeworkSchema = Joi.object({
 });
 
 // Get all homework for a school/class
-router.get('/', authenticate, checkFeatureAccess('homework'), async (req, res) => {
+router.get('/', authenticate, checkFeatureAccess('homework'), checkStudentPermission('homework', 'view'), filterStudentData('studentId'), async (req, res) => {
   try {
     const { page = 1, limit = 10, classId, subject, type, priority, status, studentId } = req.query;
     const offset = (page - 1) * limit;
@@ -198,7 +199,7 @@ router.get('/', authenticate, checkFeatureAccess('homework'), async (req, res) =
 router.get('/stats/overview', authenticate, enforceTenancy, async (req, res) => {
   try {
     const { classId } = req.query;
-    
+
     const whereClause = {
       schoolId: req.user.schoolId || req.query.schoolId
     };
@@ -213,8 +214,8 @@ router.get('/stats/overview', authenticate, enforceTenancy, async (req, res) => 
     }
 
     const totalHomework = await Homework.count({ where: whereClause });
-    const publishedHomework = await Homework.count({ 
-      where: { ...whereClause, isPublished: true } 
+    const publishedHomework = await Homework.count({
+      where: { ...whereClause, isPublished: true }
     });
     const overdueHomework = await Homework.count({
       where: {
@@ -259,7 +260,7 @@ router.get('/stats/overview', authenticate, enforceTenancy, async (req, res) => 
 });
 
 // Get homework by ID
-router.get('/:id', authenticate, checkFeatureAccess('homework'), async (req, res) => {
+router.get('/:id', authenticate, checkFeatureAccess('homework'), checkStudentPermission('homework', 'view'), async (req, res) => {
   try {
     const homework = await Homework.findByPk(req.params.id, {
       include: [

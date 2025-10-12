@@ -135,62 +135,6 @@ router.get('/my-fees-simple', authenticate, async (req, res) => {
   }
 });
 
-// Get student's fee statistics
-router.get('/my-stats', authenticate, checkStudentPermission('fees', 'view'), async (req, res) => {
-  try {
-    // Only students can use this endpoint
-    if (req.user.role !== 'student') {
-      return res.status(403).json({ 
-        error: 'This endpoint is only for students',
-        code: 'STUDENT_ONLY_ENDPOINT'
-      });
-    }
-
-    // Get the student profile
-    const student = await Student.findOne({
-      where: { userId: req.user.id }
-    });
-
-    if (!student) {
-      return res.status(404).json({
-        error: 'Student profile not found',
-        code: 'STUDENT_PROFILE_NOT_FOUND'
-      });
-    }
-
-    // Get student's fee statistics
-    const studentFees = await StudentFee.findAll({
-      where: { studentId: student.id },
-      include: [
-        {
-          model: Fee,
-          as: 'fee',
-          attributes: ['amount', 'dueDate']
-        }
-      ]
-    });
-
-    const totalFees = studentFees.reduce((sum, sf) => sum + (sf.fee?.amount || 0), 0);
-    const totalPaid = studentFees.reduce((sum, sf) => sum + (sf.paidAmount || 0), 0);
-    const totalPending = studentFees.filter(sf => sf.status === 'pending').reduce((sum, sf) => sum + (sf.fee?.amount || 0) - (sf.paidAmount || 0), 0);
-    const totalOverdue = studentFees.filter(sf => sf.status === 'overdue').reduce((sum, sf) => sum + (sf.fee?.amount || 0) - (sf.paidAmount || 0), 0);
-
-    res.json({
-      totalFees,
-      totalPaid,
-      totalPending,
-      totalOverdue,
-      feeCount: studentFees.length
-    });
-  } catch (error) {
-    console.error('Error fetching student stats:', error);
-    res.status(500).json({ 
-      error: 'Failed to fetch your fee statistics',
-      code: 'FETCH_STUDENT_STATS_FAILED'
-    });
-  }
-});
-
 // Get current user's fees (for students)
 router.get('/my-fees', authenticate, checkStudentPermission('fees', 'view'), async (req, res) => {
   try {
@@ -270,7 +214,7 @@ router.get('/my-fees', authenticate, checkStudentPermission('fees', 'view'), asy
 });
 
 // Get fee statistics
-router.get('/stats/overview', authenticate, blockTeacherFeesAccess, checkStudentPermission('fees', 'view'), async (req, res) => {
+router.get('/stats/overview', authenticate, blockTeacherFeesAccess, async (req, res) => {
   try {
     const { classId } = req.query;
     const whereClause = {};
