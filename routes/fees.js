@@ -270,8 +270,17 @@ router.get('/my-fees', authenticate, checkStudentPermission('fees', 'view'), asy
 });
 
 // Get fee statistics
-router.get('/stats/overview', authenticate, blockTeacherFeesAccess, checkStudentPermission('fees', 'view'), async (req, res) => {
+router.get('/stats/overview', authenticate, blockTeacherFeesAccess, async (req, res) => {
+  // Students should use /my-stats endpoint instead
+  if (req.user.role === 'student') {
+    return res.status(403).json({
+      error: 'Students should use /my-stats endpoint',
+      code: 'USE_MY_STATS_ENDPOINT'
+    });
+  }
   try {
+    console.log('📊 Fetching fee statistics for user:', req.user.role, 'schoolId:', req.user.schoolId);
+    
     const { classId } = req.query;
     const whereClause = {};
     
@@ -284,45 +293,78 @@ router.get('/stats/overview', authenticate, blockTeacherFeesAccess, checkStudent
       whereClause.classId = classId;
     }
 
-    const totalFees = await Fee.sum('amount', { where: whereClause });
-    const totalStudentFees = await StudentFee.count({
-      include: [{
-        model: Fee,
-        as: 'fee',
-        where: whereClause
-      }]
-    });
-    
-    const paidStudentFees = await StudentFee.count({
-      where: { status: 'paid' },
-      include: [{
-        model: Fee,
-        as: 'fee',
-        where: whereClause
-      }]
-    });
+    console.log('📊 Using where clause:', whereClause);
 
-    const totalCollected = await StudentFee.sum('paidAmount', {
-      include: [{
-        model: Fee,
-        as: 'fee',
-        where: whereClause
-      }]
-    }) || 0;
+    // Simplified queries with better error handling
+    let totalFees = 0;
+    let totalCollected = 0;
+    let totalStudentFees = 0;
+    let paidStudentFees = 0;
 
-    const totalPending = (totalFees || 0) - totalCollected;
+    try {
+      totalFees = await Fee.sum('amount', { where: whereClause }) || 0;
+      console.log('📊 Total fees:', totalFees);
+    } catch (feeError) {
+      console.error('Error calculating total fees:', feeError);
+    }
+
+    try {
+      // Get all student fees for the school
+      const studentFeeWhere = {};
+      if (req.user.role !== 'super_admin') {
+        // For non-super admin, we need to join with Fee to filter by school
+        const schoolFees = await Fee.findAll({
+          where: whereClause,
+          attributes: ['id']
+        });
+        const feeIds = schoolFees.map(fee => fee.id);
+        
+        if (feeIds.length > 0) {
+          studentFeeWhere.feeId = { [Op.in]: feeIds };
+          
+          totalStudentFees = await StudentFee.count({ where: studentFeeWhere });
+          paidStudentFees = await StudentFee.count({ 
+            where: { ...studentFeeWhere, status: 'paid' } 
+          });
+          totalCollected = await StudentFee.sum('paidAmount', { where: studentFeeWhere }) || 0;
+        }
+      } else {
+        // Super admin can query directly
+        totalStudentFees = await StudentFee.count();
+        paidStudentFees = await StudentFee.count({ where: { status: 'paid' } });
+        totalCollected = await StudentFee.sum('paidAmount') || 0;
+      }
+      
+      console.log('📊 Student fees stats:', { totalStudentFees, paidStudentFees, totalCollected });
+    } catch (studentFeeError) {
+      console.error('Error calculating student fee stats:', studentFeeError);
+    }
+
+    const totalPending = Math.max(0, totalFees - totalCollected);
     const collectionRate = totalFees > 0 ? ((totalCollected / totalFees) * 100).toFixed(2) : 0;
 
-    res.json({
-      totalFees: totalFees || 0,
+    const result = {
+      totalFees,
       totalCollected,
       totalPending,
       totalOverdue: 0, // Calculate based on due dates if needed
       collectionRate: parseFloat(collectionRate)
-    });
+    };
+
+    console.log('📊 Final stats result:', result);
+    res.json(result);
   } catch (error) {
-    console.error('Error fetching fee statistics:', error);
-    res.status(500).json({ message: 'Error fetching statistics' });
+    console.error('❌ Error fetching fee statistics:', error);
+    console.error('Error stack:', error.stack);
+    
+    // Return default stats to prevent UI errors
+    res.json({
+      totalFees: 0,
+      totalCollected: 0,
+      totalPending: 0,
+      totalOverdue: 0,
+      collectionRate: 0
+    });
   }
 });
 
@@ -407,8 +449,14 @@ router.get('/:id', authenticate, blockTeacherFeesAccess, async (req, res) => {
           attributes: ['id', 'name', 'section']
         },
         {
+          model: User,
+          as: 'creator',
+          attributes: ['id', 'firstName', 'lastName']
+        },
+        {
           model: StudentFee,
           as: 'studentFees',
+          attributes: ['id', 'studentId', 'feeId', 'amount', 'paidAmount', 'status', 'paidDate', 'paymentMethod', 'createdAt', 'updatedAt'],
           include: [
             {
               model: Student,
@@ -503,6 +551,142 @@ router.get('/student/:studentId', authenticate, blockTeacherFeesAccess, checkStu
   } catch (error) {
     console.error('Error fetching student fees:', error);
     res.status(500).json({ message: 'Error fetching student fees' });
+  }
+});
+
+// Update bulk payments for a fee
+router.put('/:id/payments/bulk', authenticate, blockTeacherFeesAccess, async (req, res) => {
+  try {
+    // Check if user has permission to manage fees
+    const allowedRoles = ['school_admin', 'principal'];
+    if (!allowedRoles.includes(req.user.role)) {
+      return res.status(403).json({
+        error: 'You do not have permission to update fee payments',
+        code: 'INSUFFICIENT_PERMISSIONS'
+      });
+    }
+
+    const { id } = req.params;
+    const { updates } = req.body;
+
+    if (!updates || !Array.isArray(updates)) {
+      return res.status(400).json({ 
+        error: 'Updates array is required',
+        code: 'INVALID_UPDATES_FORMAT'
+      });
+    }
+
+    // Verify the fee exists and belongs to the user's school
+    const fee = await Fee.findOne({
+      where: { 
+        id,
+        schoolId: req.user.schoolId 
+      }
+    });
+
+    if (!fee) {
+      return res.status(404).json({ 
+        error: 'Fee not found',
+        code: 'FEE_NOT_FOUND'
+      });
+    }
+
+    // Process each update
+    const results = [];
+    for (const update of updates) {
+      try {
+        const { studentFeeId, status, paidAmount, paidDate, paymentMethod } = update;
+
+        console.log('🔍 Looking for studentFee:', { studentFeeId, feeId: id });
+        
+        // Find the student fee
+        const studentFee = await StudentFee.findOne({
+          where: { 
+            id: studentFeeId,
+            feeId: id
+          },
+          include: [
+            {
+              model: Student,
+              as: 'student',
+              include: [
+                {
+                  model: User,
+                  as: 'user',
+                  where: { schoolId: req.user.schoolId }
+                }
+              ]
+            }
+          ]
+        });
+        
+        console.log('🔍 StudentFee found:', !!studentFee, studentFee?.id);
+
+        if (!studentFee) {
+          results.push({
+            studentFeeId,
+            success: false,
+            error: 'Student fee not found'
+          });
+          continue;
+        }
+
+        // Prepare update data
+        const updateData = {};
+        if (status) updateData.status = status;
+        if (paidAmount !== undefined) updateData.paidAmount = parseFloat(paidAmount) || 0;
+        if (paidDate) updateData.paidDate = new Date(paidDate);
+        if (paymentMethod) updateData.paymentMethod = paymentMethod;
+
+        // Auto-set payment date if status is paid and no date provided
+        if (status === 'paid' && !paidDate && !studentFee.paidDate) {
+          updateData.paidDate = new Date();
+        }
+
+        console.log('🔄 Updating studentFee with data:', updateData);
+        
+        // Update the student fee
+        const updatedStudentFee = await studentFee.update(updateData);
+        
+        console.log('✅ StudentFee updated:', updatedStudentFee.toJSON());
+
+        results.push({
+          studentFeeId,
+          success: true,
+          message: 'Payment updated successfully'
+        });
+
+      } catch (updateError) {
+        console.error('Error updating student fee:', updateError);
+        results.push({
+          studentFeeId: update.studentFeeId,
+          success: false,
+          error: updateError.message
+        });
+      }
+    }
+
+    const successCount = results.filter(r => r.success).length;
+    const failureCount = results.filter(r => !r.success).length;
+
+    res.json({
+      success: true,
+      message: `Updated ${successCount} payments successfully${failureCount > 0 ? `, ${failureCount} failed` : ''}`,
+      results,
+      summary: {
+        total: updates.length,
+        successful: successCount,
+        failed: failureCount
+      }
+    });
+
+  } catch (error) {
+    console.error('Error updating bulk payments:', error);
+    res.status(500).json({ 
+      error: 'Failed to update payments',
+      code: 'BULK_UPDATE_FAILED',
+      details: error.message
+    });
   }
 });
 

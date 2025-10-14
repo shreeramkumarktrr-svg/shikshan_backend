@@ -35,6 +35,33 @@ const createUserSchema = Joi.object({
   schoolId: Joi.string().uuid().optional()
 });
 
+// More lenient schema for bulk import
+const bulkCreateUserSchema = Joi.object({
+  firstName: Joi.string().min(2).max(50).required(),
+  lastName: Joi.string().min(2).max(50).required(),
+  email: Joi.string().email().allow('', null).optional(),
+  phone: Joi.string().pattern(/^\d{10,15}$/).optional(),
+  password: Joi.string().min(6).optional(),
+  role: Joi.string().valid('school_admin', 'principal', 'teacher', 'student', 'parent', 'finance_officer', 'support_staff').optional(),
+  dateOfBirth: Joi.date().allow('', null).optional(),
+  gender: Joi.string().valid('male', 'female', 'other').allow('', null).optional(),
+  address: Joi.string().allow('', null).optional(),
+  employeeId: Joi.string().allow('', null).optional(),
+  subjects: Joi.array().items(Joi.string()).optional(),
+  // Student specific fields
+  classId: Joi.string().uuid().allow('', null).optional(),
+  rollNumber: Joi.string().allow('', null).optional(),
+  parentName: Joi.string().allow('', null).optional(),
+  parentContact: Joi.string().pattern(/^\d{10,15}$/).allow('', null).optional(),
+  parentEmail: Joi.string().email().allow('', null).optional(),
+  // Teacher specific fields
+  classTeacher: Joi.boolean().optional(),
+  // Status field
+  isActive: Joi.boolean().optional().default(true),
+  // Super admin can specify schoolId
+  schoolId: Joi.string().uuid().optional()
+});
+
 const updateUserSchema = Joi.object({
   firstName: Joi.string().min(2).max(50).optional(),
   lastName: Joi.string().min(2).max(50).optional(),
@@ -753,8 +780,8 @@ router.post('/bulk', authenticate, authorize('super_admin', 'school_admin', 'pri
       try {
         const userData = users[i];
 
-        // Validate each user
-        const { error, value } = createUserSchema.validate(userData);
+        // Validate each user with more lenient schema
+        const { error, value } = bulkCreateUserSchema.validate(userData);
         if (error) {
           results.errors.push({
             row: i + 1,
@@ -762,6 +789,21 @@ router.post('/bulk', authenticate, authorize('super_admin', 'school_admin', 'pri
             error: error.details.map(d => d.message).join(', ')
           });
           continue;
+        }
+
+        // Set default role if not provided
+        if (!value.role) {
+          value.role = 'student';
+        }
+
+        // Generate phone number if not provided
+        if (!value.phone) {
+          value.phone = `9999${String(Math.floor(Math.random() * 1000000)).padStart(6, '0')}`;
+        }
+
+        // For students, ensure classId is null if not provided (don't leave undefined)
+        if (value.role === 'student' && !value.classId) {
+          value.classId = null;
         }
 
         // Check if user already exists
@@ -803,7 +845,13 @@ router.post('/bulk', authenticate, authorize('super_admin', 'school_admin', 'pri
 
         // Create role-specific profile
         if (value.role === 'student') {
-          await Student.create({ userId: user.id });
+          const studentData = {
+            userId: user.id,
+            classId: value.classId || null,
+            rollNumber: value.rollNumber || null,
+            admissionDate: new Date()
+          };
+          await Student.create(studentData);
         } else if (value.role === 'parent') {
           await Parent.create({ userId: user.id });
         } else if (value.role === 'teacher') {

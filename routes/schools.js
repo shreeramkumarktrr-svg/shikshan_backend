@@ -156,6 +156,118 @@ router.post('/', authenticate, authorize('super_admin'), async (req, res) => {
   }
 });
 
+// Get current school's subscription details (for school admins/principals)
+router.get('/subscription', authenticate, authorize('principal', 'school_admin'), enforceTenancy, async (req, res) => {
+  try {
+    const school = await School.findByPk(req.user.schoolId, {
+      include: [
+        {
+          model: Subscription,
+          as: 'subscription',
+          attributes: ['id', 'name', 'planType', 'price', 'currency', 'billingCycle', 'features', 'maxStudents', 'maxTeachers'],
+          required: false
+        }
+      ]
+    });
+
+    if (!school) {
+      return res.status(404).json({ error: 'School not found' });
+    }
+
+
+
+    // Format subscription data for the frontend
+    const subscriptionData = {
+      planName: school.subscription?.name || 'Basic Plan',
+      status: school.subscriptionStatus || 'trial',
+      price: school.subscription?.price || 0,
+      currency: school.subscription?.currency || 'INR',
+      maxStudents: school.maxStudents || 100,
+      maxTeachers: school.maxTeachers || 10,
+      startDate: school.subscriptionStartedAt,
+      endDate: school.subscriptionExpiresAt,
+      features: {
+        included: [],
+        missing: []
+      }
+    };
+
+    // Parse features if available
+    if (school.subscription?.features && Object.keys(school.subscription.features).length > 0) {
+      try {
+        const features = typeof school.subscription.features === 'string' 
+          ? JSON.parse(school.subscription.features) 
+          : school.subscription.features;
+        
+        // Map feature keys to display names
+        const featureMapping = {
+          dashboard: 'Dashboard Access',
+          teachers: 'Teacher Management',
+          students: 'Student Management',
+          classes: 'Class Management',
+          attendance: 'Attendance Tracking',
+          homework: 'Homework Management',
+          events: 'Event Management',
+          complaints: 'Complaint Management',
+          fees: 'Fee Management',
+          reports: 'Reports & Analytics',
+          smsNotifications: 'SMS Notifications',
+          emailNotifications: 'Email Notifications',
+          mobileApp: 'Mobile App Access',
+          customBranding: 'Custom Branding',
+          apiAccess: 'API Access',
+          advancedReports: 'Advanced Reports',
+          bulkImport: 'Bulk Import',
+          parentPortal: 'Parent Portal'
+        };
+
+        // Separate included and missing features based on boolean values
+        subscriptionData.features.included = [];
+        subscriptionData.features.missing = [];
+
+        Object.keys(featureMapping).forEach(key => {
+          const displayName = featureMapping[key];
+          if (features[key] === true) {
+            subscriptionData.features.included.push(displayName);
+          } else {
+            subscriptionData.features.missing.push(displayName);
+          }
+        });
+
+      } catch (error) {
+        console.error('Error parsing features:', error);
+        subscriptionData.features.included = ['Basic School Management'];
+        subscriptionData.features.missing = ['Advanced Features - Contact Support'];
+      }
+    } else {
+      // Default features when no subscription or features data
+      subscriptionData.features.included = [
+        'Dashboard Access',
+        'Student Management', 
+        'Teacher Management',
+        'Class Management',
+        'Basic Reports'
+      ];
+      subscriptionData.features.missing = [
+        'Attendance Tracking',
+        'Homework Management',
+        'Fee Management',
+        'Event Management',
+        'Advanced Reports', 
+        'SMS Notifications', 
+        'Custom Branding',
+        'Mobile App Access',
+        'API Access'
+      ];
+    }
+
+    res.json({ subscription: subscriptionData });
+  } catch (error) {
+    console.error('Get school subscription error:', error);
+    res.status(500).json({ error: 'Failed to fetch subscription details' });
+  }
+});
+
 // Get school by ID
 router.get('/:id', authenticate, schoolContext, async (req, res) => {
   try {
