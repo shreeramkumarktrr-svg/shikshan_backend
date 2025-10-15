@@ -2,7 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
+
 const path = require('path');
 
 // Import database
@@ -85,26 +85,7 @@ app.use(cors(corsOptions));
 // Also handle preflight OPTIONS manually (important!)
 app.options('*', cors(corsOptions));
 
-// Rate limiting - very permissive for production stability
-const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minute window
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || (process.env.NODE_ENV === 'production' ? 5000 : 10000), // Very high limits
-  message: {
-    error: 'Too many requests from this IP, please try again later.',
-    retryAfter: '15 minutes'
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-  skip: (req) => {
-    // Skip rate limiting for OPTIONS requests and health checks
-    return req.method === 'OPTIONS' || req.path === '/health';
-  },
-  // Don't crash the server on rate limit
-  onLimitReached: (req, res, options) => {
-    console.warn(`Rate limit reached for IP: ${req.ip}, Path: ${req.path}`);
-  }
-});
-app.use(limiter);
+
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
@@ -220,13 +201,7 @@ app.use((err, req, res, next) => {
     return res.status(401).json({ error: 'Token expired' });
   }
 
-  // Rate limit errors
-  if (err.status === 429) {
-    return res.status(429).json({
-      error: 'Too many requests',
-      message: 'Please slow down and try again later'
-    });
-  }
+
 
   // Default error - don't crash the server
   const statusCode = err.status || err.statusCode || 500;
