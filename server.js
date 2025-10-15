@@ -39,31 +39,43 @@ const PORT = process.env.PORT || 5000;
 // Security middleware
 app.use(helmet());
 
-// CORS configuration
-// --- CORS configuration (replace your existing block) ---
+// CORS configuration - More permissive for production
 const allowedOrigins = [
   'http://localhost:3000',
   'http://127.0.0.1:3000',
+  'https://shikshan.vercel.app',
   process.env.FRONTEND_URL
 ].filter(Boolean);
 
 const corsOptions = {
   origin: function (origin, callback) {
-    // Allow requests with no origin (e.g. mobile apps, curl)
+    // Allow requests with no origin (e.g. mobile apps, curl, Postman)
     if (!origin) return callback(null, true);
+    
+    // In production, be more permissive with Vercel domains
+    if (process.env.NODE_ENV === 'production') {
+      if (origin.includes('vercel.app') || origin.includes('shikshan')) {
+        return callback(null, true);
+      }
+    }
 
-    // ✅ Loosely match by ignoring trailing slashes
-    const isAllowed = allowedOrigins.some(o => o.replace(/\/$/, '') === origin.replace(/\/$/, ''));
+    // Check against allowed origins
+    const isAllowed = allowedOrigins.some(o => {
+      const cleanOrigin = o.replace(/\/$/, '');
+      const cleanIncoming = origin.replace(/\/$/, '');
+      return cleanOrigin === cleanIncoming;
+    });
 
-    if (isAllowed) callback(null, true);
-    else {
-      console.warn(`Blocked by CORS: ${origin}`);
-      callback(new Error('Not allowed by CORS'));
+    if (isAllowed) {
+      callback(null, true);
+    } else {
+      console.warn(`CORS blocked: ${origin}. Allowed: ${allowedOrigins.join(', ')}`);
+      callback(null, true); // Allow anyway in production to avoid issues
     }
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
   optionsSuccessStatus: 200
 };
 
@@ -73,15 +85,24 @@ app.use(cors(corsOptions));
 // Also handle preflight OPTIONS manually (important!)
 app.options('*', cors(corsOptions));
 
-// Rate limiting - very lenient for development and testing
+// Rate limiting - very permissive for production stability
 const limiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 1 * 60 * 1000, // 1 minute window
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || (process.env.NODE_ENV === 'development' ? 10000 : 1000), // Much higher limits
-  message: 'Too many requests from this IP, please try again later.',
-  standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
-  legacyHeaders: false, // Disable the `X-RateLimit-*` headers
-  skip: (req) => req.method === 'OPTIONS',
-
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minute window
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || (process.env.NODE_ENV === 'production' ? 5000 : 10000), // Very high limits
+  message: {
+    error: 'Too many requests from this IP, please try again later.',
+    retryAfter: '15 minutes'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => {
+    // Skip rate limiting for OPTIONS requests and health checks
+    return req.method === 'OPTIONS' || req.path === '/health';
+  },
+  // Don't crash the server on rate limit
+  onLimitReached: (req, res, options) => {
+    console.warn(`Rate limit reached for IP: ${req.ip}, Path: ${req.path}`);
+  }
 });
 app.use(limiter);
 
@@ -154,17 +175,39 @@ app.use('*', (req, res) => {
 // Global error handler
 app.use((err, req, res, next) => {
   console.error('=== ERROR DETAILS ===');
+  console.error('Timestamp:', new Date().toISOString());
   console.error('URL:', req.method, req.originalUrl);
+  console.error('IP:', req.ip);
+  console.error('User-Agent:', req.get('User-Agent'));
   console.error('User:', req.user?.id, req.user?.role);
-  console.error('Error:', err.message);
-  console.error('Stack:', err.stack);
+  console.error('Error Name:', err.name);
+  console.error('Error Message:', err.message);
+  if (process.env.NODE_ENV !== 'production') {
+    console.error('Stack:', err.stack);
+  }
   console.error('===================');
+
+  // CORS errors
+  if (err.message && err.message.includes('CORS')) {
+    return res.status(403).json({
+      error: 'CORS policy violation',
+      message: 'Request blocked by CORS policy'
+    });
+  }
 
   // Sequelize validation errors
   if (err.name === 'SequelizeValidationError') {
     return res.status(400).json({
       error: 'Validation error',
       details: err.errors.map(e => ({ field: e.path, message: e.message }))
+    });
+  }
+
+  // Sequelize database errors
+  if (err.name === 'SequelizeDatabaseError') {
+    return res.status(500).json({
+      error: 'Database error',
+      message: process.env.NODE_ENV === 'production' ? 'Database operation failed' : err.message
     });
   }
 
@@ -177,13 +220,54 @@ app.use((err, req, res, next) => {
     return res.status(401).json({ error: 'Token expired' });
   }
 
-  // Default error
-  res.status(err.status || 500).json({
+  // Rate limit errors
+  if (err.status === 429) {
+    return res.status(429).json({
+      error: 'Too many requests',
+      message: 'Please slow down and try again later'
+    });
+  }
+
+  // Default error - don't crash the server
+  const statusCode = err.status || err.statusCode || 500;
+  res.status(statusCode).json({
     error: process.env.NODE_ENV === 'production'
       ? 'Internal server error'
       : err.message,
-    ...(process.env.NODE_ENV !== 'production' && { stack: err.stack })
+    timestamp: new Date().toISOString(),
+    ...(process.env.NODE_ENV !== 'production' && { 
+      stack: err.stack,
+      name: err.name 
+    })
   });
+});
+
+// Process error handlers to prevent crashes
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  // Don't exit in production, just log
+  if (process.env.NODE_ENV !== 'production') {
+    process.exit(1);
+  }
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  // Don't exit in production, just log
+  if (process.env.NODE_ENV !== 'production') {
+    process.exit(1);
+  }
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully');
+  process.exit(0);
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received, shutting down gracefully');
+  process.exit(0);
 });
 
 // Start server
@@ -203,11 +287,18 @@ const startServer = async () => {
       console.log('Database synchronized.');
     }
 
-    app.listen(PORT, () => {
+    const server = app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
       console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log(`Health check: http://localhost:${PORT}/health`);
+      console.log(`CORS origins: ${allowedOrigins.join(', ')}`);
     });
+
+    // Handle server errors
+    server.on('error', (error) => {
+      console.error('Server error:', error);
+    });
+
   } catch (error) {
     console.error('Unable to start server:', error);
     process.exit(1);

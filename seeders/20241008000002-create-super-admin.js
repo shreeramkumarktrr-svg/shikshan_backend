@@ -16,7 +16,7 @@ module.exports = {
     }
 
     // Hash the password
-    const hashedPassword = await bcrypt.hash('superadmin123', 12);
+    const hashedPassword = await bcrypt.hash('shree@admin', 12);
 
     // Create super admin user
     const superAdminId = '550e8400-e29b-41d4-a716-446655440000'; // Fixed UUID for super admin
@@ -26,7 +26,7 @@ module.exports = {
         id: superAdminId,
         firstName: 'Super',
         lastName: 'Admin',
-        email: 'superadmin@shikshan.com',
+        email: 'shree@shikshan.com',
         phone: '9999999999',
         passwordHash: hashedPassword,
         role: 'super_admin',
