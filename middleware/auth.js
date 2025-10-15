@@ -45,8 +45,10 @@ const authenticate = async (req, res, next) => {
     }
     
     // Set database-level school context for Row Level Security (if functions exist)
+    // Skip RLS for now to avoid production issues
     try {
-      if (user.schoolId && user.role !== 'super_admin') {
+      if (process.env.NODE_ENV === 'development' && user.schoolId && user.role !== 'super_admin') {
+        // Only try RLS in development
         await req.app.locals.sequelize.query(
           'SELECT set_school_context($1, $2)',
           {
@@ -54,18 +56,10 @@ const authenticate = async (req, res, next) => {
             type: req.app.locals.sequelize.QueryTypes.SELECT
           }
         );
-      } else if (user.role === 'super_admin') {
-        await req.app.locals.sequelize.query(
-          'SELECT set_school_context(NULL, $1)',
-          {
-            bind: [user.role],
-            type: req.app.locals.sequelize.QueryTypes.SELECT
-          }
-        );
       }
     } catch (error) {
       // RLS functions may not exist yet, continue without them
-      console.log('RLS functions not available yet, skipping context setting');
+      console.log('RLS functions not available, skipping context setting');
     }
     
     req.user = user;
