@@ -14,6 +14,12 @@ module.exports = {
       min: 0,
       acquire: 30000,
       idle: 10000
+    },
+    dialectOptions: {
+      ssl: process.env.DB_SSL === 'true' ? {
+        require: true,
+        rejectUnauthorized: false
+      } : false
     }
   },
   test: {
@@ -44,6 +50,23 @@ module.exports = {
         require: true,
         rejectUnauthorized: false
       } : false
+    }
+  },
+  neon: {
+    use_env_variable: 'DATABASE_URL',
+    dialect: 'postgres',
+    logging: false,
+    pool: {
+      max: 10,
+      min: 2,
+      acquire: 30000,
+      idle: 10000
+    },
+    dialectOptions: {
+      ssl: {
+        require: true,
+        rejectUnauthorized: false
+      }
     }
   }
 };
