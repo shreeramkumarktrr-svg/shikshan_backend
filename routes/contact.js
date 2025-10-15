@@ -16,13 +16,20 @@ const contactSchema = Joi.object({
   description: Joi.string().max(1000).optional().allow('')
 });
 
-// Create nodemailer transporter
+// Create nodemailer transporter with better error handling
 const createTransporter = () => {
+  if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+    throw new Error('Email configuration missing: EMAIL_USER and EMAIL_PASS must be set');
+  }
+
   return nodemailer.createTransport({
-    service: 'gmail', // Use Gmail service
+    service: 'gmail',
     auth: {
       user: process.env.EMAIL_USER,
       pass: process.env.EMAIL_PASS
+    },
+    tls: {
+      rejectUnauthorized: false
     }
   });
 };
@@ -265,19 +272,39 @@ Reach out to them within 24 hours for the best response rate!
     });
 
   } catch (error) {
-    console.error('Contact email error:', error);
+    console.error('=== CONTACT EMAIL ERROR ===');
+    console.error('Timestamp:', new Date().toISOString());
+    console.error('Error Code:', error.code);
+    console.error('Error Message:', error.message);
+    console.error('Full Error:', error);
+    console.error('========================');
+    
+    let errorMessage = 'Failed to send message. Please try again later.';
+    let statusCode = 500;
     
     // Handle specific nodemailer errors
     if (error.code === 'EAUTH') {
-      console.error('Email authentication failed. Please check EMAIL_USER and EMAIL_PASS in .env file');
-    } else if (error.code === 'ECONNECTION') {
-      console.error('Email connection failed. Please check EMAIL_HOST and EMAIL_PORT in .env file');
+      console.error('Email authentication failed. Check EMAIL_USER and EMAIL_PASS');
+      errorMessage = 'Email authentication failed. Please contact support.';
+    } else if (error.code === 'ECONNECTION' || error.code === 'ETIMEDOUT') {
+      console.error('Email connection failed. Check network and email settings');
+      errorMessage = 'Email service temporarily unavailable. Please try again later.';
+    } else if (error.message && error.message.includes('configuration missing')) {
+      console.error('Email configuration is missing');
+      errorMessage = 'Email service not configured. Please contact support.';
+      statusCode = 503;
     }
 
-    res.status(500).json({
+    res.status(statusCode).json({
       success: false,
-      error: 'Failed to send message. Please try again later.',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      error: errorMessage,
+      code: error.code,
+      details: process.env.NODE_ENV === 'development' ? {
+        message: error.message,
+        stack: error.stack,
+        emailUser: process.env.EMAIL_USER ? 'SET' : 'NOT SET',
+        emailPass: process.env.EMAIL_PASS ? 'SET' : 'NOT SET'
+      } : undefined
     });
   }
 });
@@ -285,18 +312,36 @@ Reach out to them within 24 hours for the best response rate!
 // Test email configuration
 router.get('/test', async (req, res) => {
   try {
+    console.log('Testing email configuration...');
+    console.log('EMAIL_USER:', process.env.EMAIL_USER ? 'SET' : 'NOT SET');
+    console.log('EMAIL_PASS:', process.env.EMAIL_PASS ? 'SET' : 'NOT SET');
+    
     const transporter = createTransporter();
     await transporter.verify();
     
+    console.log('Email configuration test passed');
+    
     res.json({
       success: true,
-      message: 'Email configuration is working correctly'
+      message: 'Email configuration is working correctly',
+      config: {
+        emailUser: process.env.EMAIL_USER ? 'SET' : 'NOT SET',
+        emailPass: process.env.EMAIL_PASS ? 'SET' : 'NOT SET',
+        service: 'gmail'
+      }
     });
   } catch (error) {
+    console.error('Email configuration test failed:', error);
+    
     res.status(500).json({
       success: false,
       error: 'Email configuration test failed',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+      code: error.code,
+      details: process.env.NODE_ENV === 'development' ? {
+        message: error.message,
+        emailUser: process.env.EMAIL_USER ? 'SET' : 'NOT SET',
+        emailPass: process.env.EMAIL_PASS ? 'SET' : 'NOT SET'
+      } : undefined
     });
   }
 });
