@@ -27,7 +27,13 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING,
       allowNull: true,
       validate: {
-        isEmail: true
+        isEmailOrEmpty(value) {
+          if (value && value.trim() !== '') {
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+              throw new Error('Must be a valid email address');
+            }
+          }
+        }
       }
     },
     phone: {

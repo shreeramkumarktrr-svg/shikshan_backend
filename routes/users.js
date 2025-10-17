@@ -13,7 +13,7 @@ const createUserSchema = Joi.object({
   firstName: Joi.string().min(2).max(50).required(),
   lastName: Joi.string().min(2).max(50).required(),
   email: Joi.string().email().allow('', null).optional(),
-  phone: Joi.string().pattern(/^\d{10,15}$/).required(),
+  phone: Joi.string().pattern(/^[\d\s\-\+\(\)]{10,20}$/).required(),
   password: Joi.string().min(6).optional(),
   role: Joi.string().valid('school_admin', 'principal', 'teacher', 'student', 'parent', 'finance_officer', 'support_staff').required(),
   dateOfBirth: Joi.date().allow('', null).optional(),
@@ -25,7 +25,7 @@ const createUserSchema = Joi.object({
   classId: Joi.string().uuid().allow('', null).optional(),
   rollNumber: Joi.string().allow('', null).optional(),
   parentName: Joi.string().allow('', null).optional(),
-  parentContact: Joi.string().pattern(/^\d{10,15}$/).allow('', null).optional(),
+  parentContact: Joi.string().pattern(/^[\d\s\-\+\(\)]{10,20}$/).allow('', null).optional(),
   parentEmail: Joi.string().email().allow('', null).optional(),
   // Teacher specific fields
   classTeacher: Joi.boolean().optional(),
@@ -40,7 +40,7 @@ const bulkCreateUserSchema = Joi.object({
   firstName: Joi.string().min(2).max(50).required(),
   lastName: Joi.string().min(2).max(50).required(),
   email: Joi.string().email().allow('', null).optional(),
-  phone: Joi.string().pattern(/^\d{10,15}$/).optional(),
+  phone: Joi.string().pattern(/^[\d\s\-\+\(\)]{10,20}$/).optional(),
   password: Joi.string().min(6).optional(),
   role: Joi.string().valid('school_admin', 'principal', 'teacher', 'student', 'parent', 'finance_officer', 'support_staff').optional(),
   dateOfBirth: Joi.date().allow('', null).optional(),
@@ -52,7 +52,7 @@ const bulkCreateUserSchema = Joi.object({
   classId: Joi.string().uuid().allow('', null).optional(),
   rollNumber: Joi.string().allow('', null).optional(),
   parentName: Joi.string().allow('', null).optional(),
-  parentContact: Joi.string().pattern(/^\d{10,15}$/).allow('', null).optional(),
+  parentContact: Joi.string().pattern(/^[\d\s\-\+\(\)]{10,20}$/).allow('', null).optional(),
   parentEmail: Joi.string().email().allow('', null).optional(),
   // Teacher specific fields
   classTeacher: Joi.boolean().optional(),
@@ -66,7 +66,7 @@ const updateUserSchema = Joi.object({
   firstName: Joi.string().min(2).max(50).optional(),
   lastName: Joi.string().min(2).max(50).optional(),
   email: Joi.string().email().allow('', null).optional(),
-  phone: Joi.string().pattern(/^\d{10,15}$/).allow('', null).optional(),
+  phone: Joi.string().pattern(/^[\d\s\-\+\(\)]{10,20}$/).allow('', null).optional(),
   password: Joi.string().min(6).optional(), // Allow but ignore during update (for form compatibility)
   role: Joi.string().valid('school_admin', 'principal', 'teacher', 'student', 'parent', 'finance_officer', 'support_staff').optional(), // Allow but restrict who can change
   dateOfBirth: Joi.date().allow('', null).optional(),
@@ -78,7 +78,7 @@ const updateUserSchema = Joi.object({
   classId: Joi.string().uuid().allow('', null).optional(),
   rollNumber: Joi.string().allow('', null).optional(),
   parentName: Joi.string().allow('', null).optional(),
-  parentContact: Joi.string().pattern(/^\d{10,15}$/).allow('', null).optional(),
+  parentContact: Joi.string().pattern(/^[\d\s\-\+\(\)]{10,20}$/).allow('', null).optional(),
   parentEmail: Joi.string().email().allow('', null).optional(),
   // Teacher specific fields
   classTeacher: Joi.boolean().optional(),
