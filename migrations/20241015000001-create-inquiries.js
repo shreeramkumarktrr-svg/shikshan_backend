@@ -52,10 +52,39 @@ module.exports = {
       }
     });
 
-    // Add indexes
-    await queryInterface.addIndex('Inquiries', ['status']);
-    await queryInterface.addIndex('Inquiries', ['email']);
-    await queryInterface.addIndex('Inquiries', ['createdAt']);
+    // Add indexes with IF NOT EXISTS logic
+    try {
+      await queryInterface.addIndex('Inquiries', ['status'], {
+        name: 'inquiries_status',
+        concurrently: false
+      });
+    } catch (error) {
+      if (!error.message.includes('already exists')) {
+        throw error;
+      }
+    }
+
+    try {
+      await queryInterface.addIndex('Inquiries', ['email'], {
+        name: 'inquiries_email',
+        concurrently: false
+      });
+    } catch (error) {
+      if (!error.message.includes('already exists')) {
+        throw error;
+      }
+    }
+
+    try {
+      await queryInterface.addIndex('Inquiries', ['createdAt'], {
+        name: 'inquiries_created_at',
+        concurrently: false
+      });
+    } catch (error) {
+      if (!error.message.includes('already exists')) {
+        throw error;
+      }
+    }
   },
 
   async down(queryInterface, Sequelize) {

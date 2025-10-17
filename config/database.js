@@ -1,4 +1,11 @@
-require('dotenv').config();
+// Load environment variables based on NODE_ENV or explicit env file
+if (process.env.ENV_FILE) {
+  require('dotenv').config({ path: process.env.ENV_FILE });
+} else if (process.env.NODE_ENV === 'development' || !process.env.NODE_ENV) {
+  require('dotenv').config({ path: '.env.local' });
+} else {
+  require('dotenv').config({ path: '.env.production' });
+}
 
 module.exports = {
   development: {

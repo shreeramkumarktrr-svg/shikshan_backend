@@ -29,6 +29,7 @@ const eventRoutes = require('./routes/events');
 const complaintRoutes = require('./routes/complaints');
 const feeRoutes = require('./routes/fees');
 const reportRoutes = require('./routes/reports');
+const subjectRoutes = require('./routes/subjects');
 const subscriptionRoutes = require('./routes/subscriptions');
 const paymentRoutes = require('./routes/payments');
 const contactRoutes = require('./routes/contact');
@@ -140,6 +141,7 @@ app.use('/api/events', eventRoutes); // Events route handles its own tenancy log
 app.use('/api/complaints', complaintRoutes); // Complaints route handles its own tenancy logic
 app.use('/api/fees', feeRoutes); // Fees route handles its own tenancy logic
 app.use('/api/reports', reportRoutes); // Reports route handles its own tenancy logic
+app.use('/api/subjects', subjectRoutes); // Subjects route handles its own tenancy logic
 app.use('/api/subscriptions', subscriptionRoutes); // Super admin only, no tenancy needed
 app.use('/api/payments', paymentRoutes); // Global payments, handled separately
 app.use('/api/contact', contactRoutes); // Public routes, no tenancy needed
@@ -256,11 +258,12 @@ const startServer = async () => {
     // setupGlobalTenantFiltering(db.sequelize);
     console.log('Tenant filtering middleware ready.');
 
-    // Sync database (only in development)
-    if (process.env.NODE_ENV === 'development') {
-      await db.sequelize.sync({ alter: true });
-      console.log('Database synchronized.');
-    }
+    // Sync database (disabled - using migrations instead)
+    // if (process.env.NODE_ENV === 'development') {
+    //   await db.sequelize.sync({ alter: true });
+    //   console.log('Database synchronized.');
+    // }
+    console.log('Using migrations for database schema management.');
 
     const server = app.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);

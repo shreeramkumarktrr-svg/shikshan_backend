@@ -1,37 +1,41 @@
-const { sequelize } = require('./models');
+const { Client } = require('pg');
+require('dotenv').config({ path: '.env.local' });
 
 async function resetMigrations() {
+  const client = new Client({
+    host: process.env.DB_HOST || 'localhost',
+    port: process.env.DB_PORT || 5432,
+    user: process.env.DB_USER || 'postgres',
+    password: process.env.DB_PASSWORD || 'Shree123',
+    database: process.env.DB_NAME || 'shikshan_dev'
+  });
+
   try {
-    console.log('Resetting migrations...');
+    await client.connect();
+    console.log('Connected to local database');
+
+    // Drop all tables to start fresh
+    console.log('Dropping all tables...');
     
-    // Get list of migrations that have been run
-    const [migrations] = await sequelize.query(`
-      SELECT name FROM "SequelizeMeta" 
-      WHERE name IN (
-        '20241001000012-create-subscriptions.js',
-        '20241001000013-create-payments.js', 
-        '20241001000014-add-subscription-to-schools.js',
-        '20241001000016-create-complaint-updates.js'
-      )
-      ORDER BY name DESC
-    `);
-
-    );
-
-    // Remove these migrations from SequelizeMeta
-    for (const migration of migrations) {
-      await sequelize.query(`DELETE FROM "SequelizeMeta" WHERE name = ?`, {
-        replacements: [migration.name]
-      });
-      console.log(`Removed migration record: ${migration.name}`);
-    }
-
-    console.log('Migration records reset. You can now run migrations again.');
+    const dropTablesQuery = `
+      DROP SCHEMA public CASCADE;
+      CREATE SCHEMA public;
+      GRANT ALL ON SCHEMA public TO postgres;
+      GRANT ALL ON SCHEMA public TO public;
+    `;
     
+    await client.query(dropTablesQuery);
+    console.log('✅ All tables dropped successfully');
+
+    await client.end();
+    console.log('✅ Database reset completed');
+    console.log('\nNext steps:');
+    console.log('1. Run: npm run migrate:local');
+    console.log('2. Run: npm run seed:local');
+
   } catch (error) {
-    console.error('Error resetting migrations:', error);
-  } finally {
-    await sequelize.close();
+    console.error('❌ Error resetting database:', error.message);
+    process.exit(1);
   }
 }
 
